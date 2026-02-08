@@ -1,0 +1,89 @@
+# ===== SECRETS & ENVIRONMENT =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# ===== PYTHON =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+*.egg
+.eggs/
+build/
+develop-eggs/
+sdist/
+wheels/
+pip-log.txt
+pip-delete-this-directory.txt
+.Python
+lib/
+lib64/
+share/
+*.manifest
+*.spec
+.installed.cfg
+MANIFEST
+uv.lock
+.python-version
+
+# ===== NODE =====
+node_modules/
+dist/
+.cache/
+.parcel-cache/
+*.tsbuildinfo
+package-lock.json
+
+# ===== IDE & EDITORS =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+.classpath
+*.sublime-workspace
+*.sublime-project
+
+# ===== OS =====
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===== CACHES & LOGS =====
+.meraki_cache/
+.claude/
+*.log
+logs/
+.ipynb_checkpoints/
+
+# ===== TESTING & COVERAGE =====
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== MERAKI MCP SUBPROJECT =====
+# Include the MCP source but ignore its generated artifacts
+Meraki Magic MCP/.venv/
+Meraki Magic MCP/__pycache__/
+Meraki Magic MCP/.meraki_cache/
+Meraki Magic MCP/uv.lock
+Meraki Magic MCP/.git/

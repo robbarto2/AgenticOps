@@ -1,0 +1,109 @@
+"""Compliance agent - evaluates configurations against network policies."""
+
+from __future__ import annotations
+
+import logging
+
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+
+from agents.state import AgentState
+from agents.tools import build_langchain_tools
+from config import settings
+from skills.loader import load_skills_for_agent
+
+logger = logging.getLogger(__name__)
+
+SYSTEM_PROMPT_TEMPLATE = """You are the AgenticOps Compliance Agent. You evaluate network configurations against requirements, policies, and best practices.
+
+Your approach:
+1. Identify what configurations to audit (SSIDs, VLANs, firewall rules, switch ports, VPN)
+2. Gather current configuration data using Meraki tools
+3. Evaluate against standard best practices and any user-specified requirements
+4. Flag deviations with severity levels (critical, warning, info)
+5. Provide specific remediation steps
+
+Key areas to check:
+- SSID security: WPA3 preferred, open networks flagged, proper VLAN assignment
+- VLAN segmentation: Proper isolation, DHCP configuration, naming conventions
+- Switch ports: Trunk vs access mode, VLAN assignment, unused ports disabled
+- Firewall rules: Rule ordering, overly permissive rules, documentation
+- VPN: Hub/spoke topology, split tunnel settings, subnet overlap
+
+Summarize findings as structured data suitable for cards.
+
+{skills}"""
+
+
+async def compliance_node(state: AgentState) -> dict:
+    """Execute compliance audit for the user query."""
+    query = state["user_query"]
+    skills_text = load_skills_for_agent("compliance")
+
+    llm = ChatAnthropic(
+        model=settings.model_name,
+        api_key=settings.anthropic_api_key,
+        max_tokens=4096,
+    )
+
+    tools = build_langchain_tools("compliance")
+    if tools:
+        llm_with_tools = llm.bind_tools(tools)
+    else:
+        llm_with_tools = llm
+
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(skills=skills_text)
+    messages = [
+        SystemMessage(content=system_prompt),
+        *state["messages"],
+        HumanMessage(content=query),
+    ]
+
+    agent_events = list(state.get("agent_events", []))
+    tool_results = list(state.get("tool_results", []))
+
+    max_iterations = 10
+    for _ in range(max_iterations):
+        response = await llm_with_tools.ainvoke(messages)
+        messages.append(response)
+
+        if not response.tool_calls:
+            break
+
+        for tool_call in response.tool_calls:
+            tool_name = tool_call["name"]
+            tool_args = tool_call["args"]
+
+            agent_events.append({
+                "type": "tool_call",
+                "tool": tool_name,
+                "source": "meraki",
+                "status": "running",
+            })
+
+            matching_tools = [t for t in tools if t.name == tool_name]
+            if matching_tools:
+                result = await matching_tools[0].ainvoke(tool_args)
+            else:
+                result = f"Tool {tool_name} not found"
+
+            tool_results.append({
+                "tool": tool_name,
+                "args": tool_args,
+                "result": result,
+            })
+
+            agent_events.append({
+                "type": "tool_call",
+                "tool": tool_name,
+                "source": "meraki",
+                "status": "complete",
+            })
+
+            messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
+
+    return {
+        "messages": [HumanMessage(content=query), response],
+        "tool_results": tool_results,
+        "agent_events": agent_events,
+    }
