@@ -32,6 +32,14 @@ class SkillsResponse(BaseModel):
     count: int
 
 
+class EntityStatsResponse(BaseModel):
+    """Live stats for a network entity."""
+
+    deviceCount: int
+    clientCount: int
+    ssidCount: int
+
+
 class WebSocketMessage(BaseModel):
     """Incoming WebSocket message from client."""
 

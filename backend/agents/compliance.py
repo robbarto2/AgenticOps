@@ -10,29 +10,12 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from agents.state import AgentState
 from agents.tools import build_langchain_tools
 from config import settings
+from prompts import load_prompt
 from skills.loader import load_skills_for_agent
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT_TEMPLATE = """You are the AgenticOps Compliance Agent. You evaluate network configurations against requirements, policies, and best practices.
-
-Your approach:
-1. Identify what configurations to audit (SSIDs, VLANs, firewall rules, switch ports, VPN)
-2. Gather current configuration data using Meraki tools
-3. Evaluate against standard best practices and any user-specified requirements
-4. Flag deviations with severity levels (critical, warning, info)
-5. Provide specific remediation steps
-
-Key areas to check:
-- SSID security: WPA3 preferred, open networks flagged, proper VLAN assignment
-- VLAN segmentation: Proper isolation, DHCP configuration, naming conventions
-- Switch ports: Trunk vs access mode, VLAN assignment, unused ports disabled
-- Firewall rules: Rule ordering, overly permissive rules, documentation
-- VPN: Hub/spoke topology, split tunnel settings, subnet overlap
-
-Summarize findings as structured data suitable for cards.
-
-{skills}"""
+SYSTEM_PROMPT_TEMPLATE = load_prompt("compliance")
 
 
 async def compliance_node(state: AgentState) -> dict:

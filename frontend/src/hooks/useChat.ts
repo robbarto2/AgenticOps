@@ -4,11 +4,13 @@ import { useCanvasStore } from '../store/canvasSlice'
 import { useWebSocket } from './useWebSocket'
 import type { WebSocketInEvent, AgentStartData, ToolCallData, CardData } from '../types/websocket'
 import type { AnyCard } from '../types/card'
+import type { TableData } from '../types/chat'
 
 export function useChat() {
   const {
     addMessage,
     appendToLastAssistant,
+    attachTableData,
     setActiveAgent,
     addToolCall,
     updateToolCall,
@@ -49,6 +51,13 @@ export function useChat() {
           break
         }
 
+        case 'table_data': {
+          const tableData = event.data as TableData
+          console.log('[useChat] Received table_data event:', tableData?.table_id, 'rows:', tableData?.rows?.length)
+          attachTableData(tableData)
+          break
+        }
+
         case 'done': {
           setActiveAgent(null)
           setProcessing(false)
@@ -65,10 +74,10 @@ export function useChat() {
         }
       }
     },
-    [addMessage, appendToLastAssistant, setActiveAgent, addToolCall, updateToolCall, setProcessing, clearToolCalls, addCard]
+    [addMessage, appendToLastAssistant, attachTableData, setActiveAgent, addToolCall, updateToolCall, setProcessing, clearToolCalls, addCard]
   )
 
-  const { sendMessage: wsSend } = useWebSocket(handleMessage)
+  const { sendMessage: wsSend, sendStop: wsStop } = useWebSocket(handleMessage)
 
   const sendMessage = useCallback(
     (content: string) => {
@@ -84,5 +93,12 @@ export function useChat() {
     [addMessage, setProcessing, wsSend]
   )
 
-  return { sendMessage }
+  const stopProcessing = useCallback(() => {
+    wsStop()
+    setProcessing(false)
+    setActiveAgent(null)
+    clearToolCalls()
+  }, [wsStop, setProcessing, setActiveAgent, clearToolCalls])
+
+  return { sendMessage, stopProcessing }
 }

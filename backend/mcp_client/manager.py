@@ -66,7 +66,7 @@ class MCPClientManager:
         try:
             server_params = StdioServerParameters(
                 command=settings.meraki_mcp_venv_fastmcp,
-                args=["run", settings.meraki_mcp_script],
+                args=["run", settings.meraki_mcp_script, "--transport", "stdio"],
                 env=settings.meraki_subprocess_env(),
             )
             transport = await self._exit_stack.enter_async_context(
@@ -156,15 +156,97 @@ class MCPClientManager:
             return {"error": f"Tool call failed: {e}", "tool": tool_name}
 
     def get_tools_for_agent(self, agent_type: str) -> list[ToolDescriptor]:
-        """Get tools available to a specific agent type."""
-        tool_filters: dict[str, set[str]] = {
-            "troubleshooting": {"meraki", "thousandeyes"},
-            "compliance": {"meraki"},
-            "security": {"meraki", "thousandeyes"},
-            "discovery": {"meraki", "thousandeyes"},
-        }
-        allowed_sources = tool_filters.get(agent_type, set())
-        return [t for t in self._tools if t.source in allowed_sources]
+        """Get tools available to a specific agent type.
+
+        Uses per-agent allowlists to keep tool counts low and reduce LLM
+        context size / latency.  If an agent isn't listed here it gets
+        nothing (safe default).
+        """
+        allowed = _AGENT_TOOL_ALLOWLIST.get(agent_type)
+        if allowed is None:
+            return []
+        return [t for t in self._tools if t.name in allowed]
+
+
+# ---------------------------------------------------------------------------
+# Per-agent tool allowlists
+# Only include the tools each agent genuinely needs.  This keeps the LLM
+# context small and responses fast.
+# ---------------------------------------------------------------------------
+
+_DISCOVERY_TOOLS = {
+    # Meraki
+    "getOrganizations",
+    "getOrganizationNetworks",
+    "getOrganizationDevices",
+    "getNetwork",
+    "getNetworkDevices",
+    "getNetworkClients",
+    "getNetworkWirelessSsids",
+    "getDevice",
+    "call_meraki_api",
+    # ThousandEyes
+    "get_account_groups",
+    "list_network_app_synthetics_tests",
+    "list_cloud_enterprise_agents",
+    "list_endpoint_agents",
+}
+
+_TROUBLESHOOTING_TOOLS = {
+    # Meraki
+    "getOrganizationNetworks",
+    "getNetworkDevices",
+    "getNetworkClients",
+    "getNetworkEvents",
+    "getNetworkWirelessSsids",
+    "getDevice",
+    "call_meraki_api",
+    # ThousandEyes
+    "list_network_app_synthetics_tests",
+    "get_network_app_synthetics_test",
+    "get_network_app_synthetics_metrics",
+    "get_endpoint_agent_metrics",
+    "get_anomalies",
+    "list_alerts",
+    "get_path_visualization_results",
+    "get_full_path_visualization",
+    "list_cloud_enterprise_agents",
+    "list_endpoint_agents",
+}
+
+_SECURITY_TOOLS = {
+    # Meraki
+    "getOrganizationNetworks",
+    "getNetworkDevices",
+    "getNetworkEvents",
+    "getDevice",
+    "call_meraki_api",
+    # ThousandEyes
+    "list_alerts",
+    "get_alert",
+    "list_events",
+    "get_event",
+    "search_outages",
+    "get_anomalies",
+}
+
+_COMPLIANCE_TOOLS = {
+    # Meraki only
+    "getOrganizationNetworks",
+    "getOrganizationDevices",
+    "getNetworkDevices",
+    "getNetworkWirelessSsids",
+    "getDeviceSwitchPorts",
+    "getDevice",
+    "call_meraki_api",
+}
+
+_AGENT_TOOL_ALLOWLIST: dict[str, set[str]] = {
+    "discovery": _DISCOVERY_TOOLS,
+    "troubleshooting": _TROUBLESHOOTING_TOOLS,
+    "security": _SECURITY_TOOLS,
+    "compliance": _COMPLIANCE_TOOLS,
+}
 
 
 # Global singleton

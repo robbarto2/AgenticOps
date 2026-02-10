@@ -1,11 +1,11 @@
 export interface WebSocketOutMessage {
-  type: 'user_message'
-  content: string
+  type: 'user_message' | 'stop'
+  content?: string
   session_id?: string
 }
 
 export interface WebSocketInEvent {
-  type: 'agent_start' | 'tool_call' | 'text' | 'card' | 'done' | 'error' | 'cards_ready'
+  type: 'agent_start' | 'tool_call' | 'text' | 'card' | 'done' | 'error' | 'cards_ready' | 'table_data'
   data: unknown
 }
 

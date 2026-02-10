@@ -1,13 +1,48 @@
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { formatTimestamp, agentDisplayName } from '../../utils/formatters'
-import type { ChatMessage as ChatMessageType } from '../../types/chat'
+import type { ChatMessage as ChatMessageType, TableData } from '../../types/chat'
+import { InteractiveTable } from './InteractiveTable'
 
 interface Props {
   message: ChatMessageType
 }
 
+/**
+ * Strip markdown tables whose headers match a TableData entry.
+ * This lets us render those tables via InteractiveTable instead.
+ */
+function stripMatchingTables(content: string, tableData: TableData[]): string {
+  // Regex matches a markdown table: header row, separator row, and data rows
+  const tableRegex = /^(\|[^\n]+\|\s*\n\|[-:\s|]+\|\s*\n(?:\|[^\n]+\|\s*\n?)*)/gm
+
+  return content.replace(tableRegex, (match) => {
+    // Extract header cell texts from the first line
+    const firstLine = match.split('\n')[0]
+    const headers = firstLine
+      .split('|')
+      .map((s) => s.trim())
+      .filter(Boolean)
+
+    // Check if any tableData columns match these headers
+    const isMatch = tableData.some(
+      (td) =>
+        td.columns.length === headers.length &&
+        td.columns.every((col, i) => col.toLowerCase() === headers[i]?.toLowerCase())
+    )
+
+    return isMatch ? '' : match
+  })
+}
+
 export function ChatMessage({ message }: Props) {
   const isUser = message.role === 'user'
+  const hasTableData = message.tableData && message.tableData.length > 0
+
+  // Strip tables from markdown that will be rendered as InteractiveTable
+  const displayContent = hasTableData
+    ? stripMatchingTables(message.content, message.tableData!)
+    : message.content
 
   return (
     <div className={`px-4 py-3 ${isUser ? 'bg-gray-900/30' : 'bg-transparent'}`}>
@@ -39,10 +74,19 @@ export function ChatMessage({ message }: Props) {
             </span>
           </div>
 
-          {/* Content */}
-          <div className="text-sm text-gray-300 prose prose-invert prose-sm max-w-none">
-            <ReactMarkdown>{message.content}</ReactMarkdown>
+          {/* Markdown content */}
+          <div className="text-sm text-gray-300 prose prose-invert prose-sm max-w-none overflow-x-auto">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {displayContent}
+            </ReactMarkdown>
           </div>
+
+          {/* Interactive tables — rendered outside prose to avoid style conflicts */}
+          {message.tableData?.map((td) => (
+            <div key={td.table_id} className="mt-3 overflow-x-auto rounded-lg border border-gray-800">
+              <InteractiveTable tableData={td} />
+            </div>
+          ))}
         </div>
       </div>
     </div>

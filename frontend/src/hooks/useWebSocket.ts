@@ -59,5 +59,11 @@ export function useWebSocket(onMessage: (event: WebSocketInEvent) => void) {
     }
   }, [])
 
-  return { sendMessage }
+  const sendStop = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'stop' }))
+    }
+  }, [])
+
+  return { sendMessage, sendStop }
 }

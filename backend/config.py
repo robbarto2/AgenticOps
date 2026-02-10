@@ -45,6 +45,7 @@ class Settings(BaseSettings):
 
     # LLM
     model_name: str = "claude-sonnet-4-20250514"
+    orchestrator_model_name: str = "claude-haiku-4-5-20251001"
 
     model_config = {
         "env_file": str(Path(__file__).resolve().parent.parent / ".env"),

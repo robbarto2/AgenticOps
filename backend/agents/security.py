@@ -10,36 +10,12 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from agents.state import AgentState
 from agents.tools import build_langchain_tools
 from config import settings
+from prompts import load_prompt
 from skills.loader import load_skills_for_agent
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT_TEMPLATE = """You are the AgenticOps Security Agent. You assess network security posture, analyze firewall configurations, and detect potential threats.
-
-Your approach:
-1. Identify the security assessment scope
-2. Gather firewall rules, security events, and protection settings
-3. Evaluate against security best practices
-4. Identify vulnerabilities and risks with severity ratings
-5. Provide prioritized remediation recommendations
-
-Key security checks:
-- Firewall rules: Overly permissive rules (any/any), rule ordering issues, unused rules
-- Content filtering: Blocked categories alignment with organizational policy
-- IDS/IPS: Prevention vs detection mode, signature updates
-- Security events: Pattern analysis, top threats, affected endpoints
-- Access controls: ACL effectiveness, segmentation enforcement
-- Default deny: Explicit or implicit deny-all as last rule
-
-Prioritize findings by risk:
-- Critical: Actively exploitable, data exposure risk
-- High: Significant security gap, remediate promptly
-- Medium: Best practice deviation, plan remediation
-- Low: Informational, consider for improvement
-
-Summarize findings as structured data suitable for cards.
-
-{skills}"""
+SYSTEM_PROMPT_TEMPLATE = load_prompt("security")
 
 
 async def security_node(state: AgentState) -> dict:

@@ -1,6 +1,7 @@
 import { useConnectionStore } from '../../store/connectionSlice'
 import { useChatStore } from '../../store/chatSlice'
 import { agentDisplayName } from '../../utils/formatters'
+import { HelpMenu } from './HelpMenu'
 
 export function TopBar() {
   const status = useConnectionStore((s) => s.status)
@@ -31,6 +32,8 @@ export function TopBar() {
             </span>
           </div>
         )}
+
+        <HelpMenu />
 
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${statusColors[status]}`} />

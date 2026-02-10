@@ -10,31 +10,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from agents.state import AgentState
 from agents.tools import build_langchain_tools
 from config import settings
+from prompts import load_prompt
 from skills.loader import load_skills_for_agent
 
 logger = logging.getLogger(__name__)
 
-
-SYSTEM_PROMPT_TEMPLATE = """You are the AgenticOps Troubleshooting Agent. You diagnose network issues by gathering and correlating data from Meraki and ThousandEyes.
-
-Your approach:
-1. Identify the scope (specific network, device, client, or organization-wide)
-2. Gather relevant data using available tools
-3. Correlate findings across data sources
-4. Identify root causes
-5. Provide actionable recommendations
-
-When gathering data, be systematic:
-- Start broad (network-level metrics) then narrow down
-- Look for patterns in timing and affected devices
-- Cross-reference Meraki data with ThousandEyes when available
-
-After analysis, summarize your findings as structured data that includes:
-- A text summary of the issue and root cause
-- Relevant metrics and data points
-- Recommendations for remediation
-
-{skills}"""
+SYSTEM_PROMPT_TEMPLATE = load_prompt("troubleshooting")
 
 
 async def troubleshooting_node(state: AgentState) -> dict:

@@ -3,9 +3,10 @@ import { useChatStore } from '../../store/chatSlice'
 
 interface Props {
   onSend: (content: string) => void
+  onStop: () => void
 }
 
-export function ChatInput({ onSend }: Props) {
+export function ChatInput({ onSend, onStop }: Props) {
   const [value, setValue] = useState('')
   const isProcessing = useChatStore((s) => s.isProcessing)
 
@@ -38,13 +39,22 @@ export function ChatInput({ onSend }: Props) {
           className="flex-1 resize-none bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20"
           disabled={isProcessing}
         />
-        <button
-          onClick={handleSubmit}
-          disabled={isProcessing || !value.trim()}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium rounded-lg transition-colors"
-        >
-          Send
-        </button>
+        {isProcessing ? (
+          <button
+            onClick={onStop}
+            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            onClick={handleSubmit}
+            disabled={!value.trim()}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Send
+          </button>
+        )}
       </div>
     </div>
   )

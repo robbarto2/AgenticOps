@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @layer base {
   :root {
@@ -52,6 +53,31 @@
 
 .react-flow__controls-button:hover {
   background-color: #2d2e3a !important;
+}
+
+/* Markdown table styling in chat */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.prose thead th {
+  background-color: #1e293b;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 1px solid #334155;
+  white-space: nowrap;
+}
+
+.prose tbody td {
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid #1e293b;
+}
+
+.prose tbody tr:hover {
+  background-color: #1e293b40;
 }
 
 /* Custom scrollbar */

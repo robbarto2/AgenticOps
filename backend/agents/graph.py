@@ -12,6 +12,14 @@ from agents.security import security_node
 from agents.state import AgentState
 from agents.troubleshooting import troubleshooting_node
 
+
+def _route_after_specialist(state: AgentState) -> str:
+    """Route to canvas if cards were requested, otherwise end."""
+    if state.get("generate_cards", False):
+        return "canvas"
+    return "__end__"
+
+
 # Build the multi-agent graph
 graph_builder = StateGraph(AgentState)
 
@@ -26,7 +34,7 @@ graph_builder.add_node("canvas", canvas_node)
 # Entry point
 graph_builder.set_entry_point("orchestrator")
 
-# Orchestrator routes to specialist via conditional edge
+# Orchestrator routes to specialist (or directly to canvas for follow-ups)
 graph_builder.add_conditional_edges(
     "orchestrator",
     route_to_specialist,
@@ -35,12 +43,17 @@ graph_builder.add_conditional_edges(
         "compliance": "compliance",
         "security": "security",
         "discovery": "discovery",
+        "canvas": "canvas",
     },
 )
 
-# All specialists route to canvas agent, then END
+# Specialists conditionally route to canvas (if cards requested) or END
 for agent_name in ["troubleshooting", "compliance", "security", "discovery"]:
-    graph_builder.add_edge(agent_name, "canvas")
+    graph_builder.add_conditional_edges(
+        agent_name,
+        _route_after_specialist,
+        {"canvas": "canvas", "__end__": END},
+    )
 
 graph_builder.add_edge("canvas", END)
 

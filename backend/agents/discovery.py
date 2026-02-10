@@ -3,40 +3,21 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from agents.state import AgentState
+from agents.table_extractor import extract_network_table
 from agents.tools import build_langchain_tools
 from config import settings
+from prompts import load_prompt
 from skills.loader import load_skills_for_agent
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT_TEMPLATE = """You are the AgenticOps Discovery Agent. You explore network inventory, topology, device status, and overall health.
-
-Your approach:
-1. Determine what the user wants to discover (devices, networks, health, inventory, topology)
-2. Gather comprehensive data using Meraki and ThousandEyes tools
-3. Organize results by logical groupings (network, site, device type)
-4. Provide health summaries and highlight issues
-5. Present data in a clear, structured format
-
-Data to collect based on query:
-- Organization overview: org details, network list, license status
-- Device inventory: models, serials, firmware, status, network assignment
-- Network health: device status distribution, alert counts
-- Topology: device connections, uplink info
-- ThousandEyes: test inventory, monitored endpoints
-
-Organize output for presentation as cards:
-- Use data tables for device/network listings
-- Use bar charts for distribution breakdowns
-- Use network health cards for status summaries
-- Use text reports for narrative overviews
-
-{skills}"""
+SYSTEM_PROMPT_TEMPLATE = load_prompt("discovery")
 
 
 async def discovery_node(state: AgentState) -> dict:
@@ -110,8 +91,43 @@ async def discovery_node(state: AgentState) -> dict:
 
             messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
 
+    # Extract structured table data for interactive hover popups
+    table_data = extract_network_table(tool_results)
+    logger.info("Discovery node: extracted %d table_data entries from %d tool_results",
+                len(table_data), len(tool_results))
+
+    # If we have interactive tables, strip duplicate markdown tables from the
+    # LLM response so the user doesn't see the same data twice.
+    if table_data:
+        response = _strip_markdown_tables(response)
+
     return {
         "messages": [HumanMessage(content=query), response],
         "tool_results": tool_results,
         "agent_events": agent_events,
+        "table_data": table_data,
     }
+
+
+# Regex matching a full markdown table (header row, separator row, data rows)
+_MD_TABLE_RE = re.compile(
+    r"(?m)"                   # multiline
+    r"^[ \t]*\|.+\|[ \t]*\n"  # header row
+    r"^[ \t]*\|[-:\s|]+\|[ \t]*\n"  # separator row
+    r"(?:^[ \t]*\|.+\|[ \t]*\n?)+"  # one or more data rows
+)
+
+
+def _strip_markdown_tables(msg: AIMessage) -> AIMessage:
+    """Return a copy of the AI message with markdown tables removed."""
+    content = msg.content
+    if not isinstance(content, str):
+        return msg
+    cleaned = _MD_TABLE_RE.sub("", content)
+    # Collapse runs of blank lines left behind
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if cleaned == content.strip():
+        return msg
+    logger.info("Stripped markdown table(s) from discovery response (%d -> %d chars)",
+                len(content), len(cleaned))
+    return AIMessage(content=cleaned, id=msg.id)

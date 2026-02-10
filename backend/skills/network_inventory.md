@@ -3,15 +3,21 @@
 ## Trigger
 Inventory, devices, networks, topology, status, health, overview, summary, what do we have, show me
 
-## Steps
-1. Get organization details (`getOrganization`)
-2. Get all networks (`getOrganizationNetworks`)
-3. Get device inventory (`getOrganizationInventoryDevices`)
-4. Get device statuses (`getOrganizationDevicesStatuses`)
-5. Get license overview (`getOrganizationLicensesOverview`)
-6. If ThousandEyes available: get test inventory and account groups
+## IMPORTANT: Match scope to query
 
-## Analysis
+**Simple listing** ("list networks", "show my networks", "what networks do I have"):
+- Call ONLY `getOrganizationNetworks`. Nothing else.
+- Respond with ONLY the networks table. No org overview, no device counts, no license info, no analysis.
+
+**Device listing** ("list devices", "show device inventory"):
+- Call `getOrganizationInventoryDevices` and optionally `getOrganizationDevicesStatuses`.
+- Do NOT also fetch org details, licenses, or networks unless asked.
+
+**Full inventory/overview** ("full inventory", "organization overview", "health summary"):
+- Call all relevant tools: `getOrganization`, `getOrganizationNetworks`, `getOrganizationInventoryDevices`, `getOrganizationDevicesStatuses`, `getOrganizationLicensesOverview`
+- If ThousandEyes available: get test inventory and account groups
+
+## Analysis (only for full inventory queries)
 - **Device health**: Count online vs offline vs alerting devices
 - **Model distribution**: Breakdown by device type (MR, MS, MX, MV, etc.)
 - **Network count**: Total networks, by product type

@@ -6,6 +6,7 @@ import json
 import logging
 
 from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field, create_model
 
 from mcp_client.manager import mcp_manager
 
@@ -22,34 +23,44 @@ async def _call_mcp_tool(tool_name: str, **kwargs: str) -> str:
     return result.get("content", json.dumps(result))
 
 
+def _make_invoke(tool_name: str):
+    """Create a closure that invokes the named MCP tool."""
+    async def _invoke(**kwargs: str) -> str:
+        return await _call_mcp_tool(tool_name, **kwargs)
+    return _invoke
+
+
 def build_langchain_tools(agent_type: str) -> list[StructuredTool]:
     """Build LangChain tools from MCP tool descriptors for a given agent type."""
     descriptors = mcp_manager.get_tools_for_agent(agent_type)
     tools = []
 
     for desc in descriptors:
-        # Create a closure to capture the tool name
-        tool_name = desc.name
-
-        async def _invoke(tool_name: str = tool_name, **kwargs: str) -> str:
-            return await _call_mcp_tool(tool_name, **kwargs)
-
-        # Build the args schema from the MCP input schema
+        # Build a proper Pydantic args schema from the MCP input schema
         properties = desc.input_schema.get("properties", {})
-        required = desc.input_schema.get("required", [])
+        required_fields = set(desc.input_schema.get("required", []))
 
-        # Create field descriptions for the tool
-        args_schema_fields: dict[str, tuple] = {}
+        schema_fields: dict[str, tuple] = {}
         for prop_name, prop_info in properties.items():
-            field_type = str  # MCP tools use string args
             description = prop_info.get("description", "")
-            default = ... if prop_name in required else ""
-            args_schema_fields[prop_name] = (field_type, default)
+            if prop_name in required_fields:
+                schema_fields[prop_name] = (str, Field(description=description))
+            else:
+                schema_fields[prop_name] = (str, Field(default="", description=description))
+
+        args_schema = create_model(
+            f"{desc.name}_Schema",
+            __base__=BaseModel,
+            **schema_fields,
+        ) if schema_fields else None
+
+        invoke_fn = _make_invoke(desc.name)
 
         tool = StructuredTool.from_function(
-            coroutine=_invoke,
-            name=tool_name,
-            description=desc.description[:1024],  # LangChain has description limits
+            coroutine=invoke_fn,
+            name=desc.name,
+            description=desc.description[:1024],
+            args_schema=args_schema,
         )
         tools.append(tool)
 

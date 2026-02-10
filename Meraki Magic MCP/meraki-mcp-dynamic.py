@@ -590,8 +590,9 @@ async def updateDeviceSwitchPort(serial: str, portId: str, name: str = None, tag
 
     return await call_meraki_method("switch", "updateDeviceSwitchPort", **params)
 
-print(f"Registered hybrid MCP: 12 common tools + call_meraki_api for full API access (804+ methods)")
-print(f"Profile Manager: {len(profile_manager.profiles)} profiles loaded, active: {profile_manager.active_profile}")
+import sys as _sys
+print(f"Registered hybrid MCP: 12 common tools + call_meraki_api for full API access (804+ methods)", file=_sys.stderr)
+print(f"Profile Manager: {len(profile_manager.profiles)} profiles loaded, active: {profile_manager.active_profile}", file=_sys.stderr)
 
 ###################
 # DISCOVERY TOOLS
