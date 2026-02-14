@@ -2,6 +2,7 @@ import { useConnectionStore } from '../../store/connectionSlice'
 import { useChatStore } from '../../store/chatSlice'
 import { agentDisplayName } from '../../utils/formatters'
 import { HelpMenu } from './HelpMenu'
+import { ThemeToggle } from './ThemeToggle'
 
 export function TopBar() {
   const status = useConnectionStore((s) => s.status)
@@ -15,12 +16,12 @@ export function TopBar() {
   }
 
   return (
-    <div className="flex items-center justify-between px-4 py-2 bg-gray-900/80 border-b border-gray-800 backdrop-blur-sm">
+    <div className="flex items-center justify-between px-4 py-2 bg-gray-50/90 dark:bg-[#0c1019]/90 border-b border-gray-200 dark:border-[#1e2636] backdrop-blur-sm transition-colors">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-white tracking-tight">
+        <h1 className="text-lg font-semibold text-gray-900 dark:text-white tracking-tight">
           AgenticOps
         </h1>
-        <span className="text-xs text-gray-500 font-mono">v0.1</span>
+        <span className="text-xs text-gray-500 dark:text-gray-500 font-mono">v0.1</span>
       </div>
 
       <div className="flex items-center gap-4">
@@ -35,9 +36,11 @@ export function TopBar() {
 
         <HelpMenu />
 
+        <ThemeToggle />
+
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${statusColors[status]}`} />
-          <span className="text-xs text-gray-400 capitalize">{status}</span>
+          <span className="text-xs text-gray-600 dark:text-gray-400 capitalize">{status}</span>
         </div>
       </div>
     </div>

@@ -1,0 +1,50 @@
+import type { AnyCard } from '../types/card'
+import { detectDeviceType } from './formatters'
+
+export type CardCategory = 'network' | 'org' | 'device' | 'test' | 'alert' | 'chart' | 'table' | 'report'
+
+const CATEGORY_META: Record<CardCategory, { label: string; color: string }> = {
+  network: { label: 'Networks', color: '#10b981' },
+  org: { label: 'Organization', color: '#8b5cf6' },
+  device: { label: 'Devices', color: '#3b82f6' },
+  test: { label: 'Tests', color: '#06b6d4' },
+  alert: { label: 'Alerts', color: '#f59e0b' },
+  chart: { label: 'Charts', color: '#14b8a6' },
+  table: { label: 'Tables', color: '#6366f1' },
+  report: { label: 'Reports', color: '#64748b' },
+}
+
+export function getCardCategory(card: AnyCard): CardCategory {
+  switch (card.type) {
+    case 'network_detail':
+    case 'network_health':
+      return 'network'
+    case 'org_summary':
+      return 'org'
+    case 'switch_detail':
+      return 'device'
+    case 'test_detail':
+      return 'test'
+    case 'alert_summary':
+      return 'alert'
+    case 'bar_chart':
+    case 'line_chart':
+      return 'chart'
+    case 'text_report':
+      return 'report'
+    case 'data_table': {
+      const device = detectDeviceType(card.title)
+      return device.icon ? 'device' : 'table'
+    }
+    default:
+      return 'table'
+  }
+}
+
+export function getCategoryLabel(category: CardCategory): string {
+  return CATEGORY_META[category]?.label ?? category
+}
+
+export function getCategoryColor(category: CardCategory): string {
+  return CATEGORY_META[category]?.color ?? '#6b7280'
+}

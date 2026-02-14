@@ -13,6 +13,8 @@ export function agentDisplayName(agent: string): string {
     compliance: 'Compliance',
     security: 'Security',
     discovery: 'Discovery',
+    testing: 'Testing',
+    remediation: 'Remediation',
     canvas: 'Canvas',
     orchestrator: 'Orchestrator',
   }
@@ -41,4 +43,30 @@ export function statusColor(status: string): string {
     critical: '#ef4444',
   }
   return colors[status] ?? '#6b7280'
+}
+
+export type DeviceIconType = 'wifi' | 'switch' | 'appliance' | 'sensor' | 'camera' | 'gateway'
+
+export interface DeviceTypeInfo {
+  icon: DeviceIconType | null
+  label: string | null
+}
+
+const DEVICE_PREFIX_MAP: Record<string, { icon: DeviceIconType; label: string }> = {
+  MR: { icon: 'wifi', label: 'Wireless AP' },
+  MS: { icon: 'switch', label: 'Switch' },
+  C9: { icon: 'switch', label: 'Switch' },
+  MX: { icon: 'appliance', label: 'Appliance' },
+  Z: { icon: 'appliance', label: 'Appliance' },
+  MT: { icon: 'sensor', label: 'Sensor' },
+  MV: { icon: 'camera', label: 'Camera' },
+  MG: { icon: 'gateway', label: 'Gateway' },
+}
+
+export function detectDeviceType(title: string): DeviceTypeInfo {
+  const match = title.match(/\b(MR|MS|MX|MT|MV|MG|C9|Z)\d/i)
+  if (!match) return { icon: null, label: null }
+  const prefix = match[1].toUpperCase()
+  const entry = DEVICE_PREFIX_MAP[prefix]
+  return entry ? { icon: entry.icon, label: entry.label } : { icon: null, label: null }
 }

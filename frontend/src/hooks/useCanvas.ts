@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useCanvasStore } from '../store/canvasSlice'
-import type { NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from '@xyflow/react'
+import type { NodeChange, EdgeChange } from '@xyflow/react'
 
 export function useCanvas() {
   const { nodes, edges, setNodes, setEdges, removeCard, toggleCardCollapse } =
@@ -8,12 +8,24 @@ export function useCanvas() {
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      // Apply position changes manually to avoid import issues
       const updated = nodes.map((node) => {
         const change = changes.find(
           (c) => c.type === 'position' && 'id' in c && c.id === node.id
         )
         if (change && change.type === 'position' && 'position' in change && change.position) {
+          // Keep stack position in sync when dragging stack nodes
+          if (node.type === 'stackNode') {
+            const stacks = useCanvasStore.getState().stacks
+            const stack = stacks[node.id]
+            if (stack) {
+              useCanvasStore.setState({
+                stacks: {
+                  ...stacks,
+                  [node.id]: { ...stack, position: change.position },
+                },
+              })
+            }
+          }
           return { ...node, position: change.position }
         }
         // Handle remove changes
