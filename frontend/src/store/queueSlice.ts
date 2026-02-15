@@ -52,12 +52,26 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   },
 
   setPromptStatus: (id: string, status: QueuedPrompt['status']) => {
-    set((state) => ({
-      queue: state.queue.map((p) =>
+    set((state) => {
+      // Update the status
+      let newQueue = state.queue.map((p) =>
         p.id === id ? { ...p, status } : p
-      ),
-      currentPromptId: status === 'processing' ? id : state.currentPromptId,
-    }))
+      )
+
+      // Auto-remove completed, cancelled, and error prompts after a short delay
+      if (status === 'completed' || status === 'cancelled' || status === 'error') {
+        setTimeout(() => {
+          set((state) => ({
+            queue: state.queue.filter((p) => p.id !== id),
+          }))
+        }, 2000) // Remove after 2 seconds
+      }
+
+      return {
+        queue: newQueue,
+        currentPromptId: status === 'processing' ? id : state.currentPromptId,
+      }
+    })
   },
 
   getNextPending: () => {

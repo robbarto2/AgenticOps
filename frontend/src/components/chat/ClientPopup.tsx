@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useQueueStore } from '../../store/queueSlice'
 
 interface ClientMetadata {
   description?: string
@@ -11,6 +12,8 @@ interface ClientMetadata {
   status?: string
   firstSeen?: string
   lastSeen?: string
+  networkId?: string
+  networkName?: string
 }
 
 interface Props {
@@ -21,6 +24,7 @@ interface Props {
 
 export function ClientPopup({ metadata, clientName, onClose }: Props) {
   const popupRef = useRef<HTMLDivElement>(null)
+  const addPrompt = useQueueStore((s) => s.addPrompt)
 
   // Close on outside click
   useEffect(() => {
@@ -35,6 +39,22 @@ export function ClientPopup({ metadata, clientName, onClose }: Props) {
       document.removeEventListener('mousedown', handler)
     }
   }, [onClose])
+
+  const handleTroubleshoot = () => {
+    // Build troubleshooting prompt with client details
+    const details = [
+      `MAC: ${metadata.mac}`,
+      metadata.ip && `IP: ${metadata.ip}`,
+      metadata.ssid && metadata.ssid !== '-' && `SSID: ${metadata.ssid}`,
+      metadata.vlan && metadata.vlan !== '-' && `VLAN: ${metadata.vlan}`,
+      metadata.networkName && `Network: ${metadata.networkName}`,
+    ].filter(Boolean).join(', ')
+
+    const prompt = `Troubleshoot client "${clientName}" (${details}). Check client performance metrics (connection quality, latency, throughput), connectivity status, recent issues, and search for any ThousandEyes test data related to this client's IP address or network. Provide a comprehensive diagnostic report with recommendations.`
+
+    addPrompt(prompt)
+    onClose()
+  }
 
   const popupWidth = 380
 
@@ -137,14 +157,25 @@ export function ClientPopup({ metadata, clientName, onClose }: Props) {
           </div>
         </div>
 
-        {/* Close button */}
+        {/* Action buttons */}
         <div className="px-4 py-3 bg-gray-50/50 dark:bg-gray-800/20 border-t border-gray-200 dark:border-gray-800">
-          <button
-            onClick={onClose}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-2 border-gray-200 dark:border-gray-700 rounded-lg transition-all shadow-sm hover:shadow cursor-pointer"
-          >
-            Close
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleTroubleshoot}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700 rounded-lg transition-all shadow-sm hover:shadow cursor-pointer"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z" />
+              </svg>
+              Troubleshoot
+            </button>
+            <button
+              onClick={onClose}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-2 border-gray-200 dark:border-gray-700 rounded-lg transition-all shadow-sm hover:shadow cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>,

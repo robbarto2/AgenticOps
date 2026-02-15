@@ -594,6 +594,12 @@ def extract_client_table(tool_results: list[dict]) -> list[dict]:
 
         logger.info("extract_client_table: found client result from tool '%s'", tool_name)
 
+        # Extract networkId from tool args if available
+        network_id = None
+        args = result.get("args", {})
+        if isinstance(args, dict):
+            network_id = args.get("networkId") or args.get("network_id")
+
         raw = result.get("result", "")
         clients = _parse_result(raw)
 
@@ -669,6 +675,7 @@ def extract_client_table(tool_results: list[dict]) -> list[dict]:
                     "status": status,
                     "firstSeen": first_seen,
                     "lastSeen": last_seen,
+                    "networkId": network_id,
                 },
             })
 

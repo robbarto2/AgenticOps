@@ -3,12 +3,14 @@ import { useQueueStore } from '../../store/queueSlice'
 export function PromptQueue() {
   const queue = useQueueStore((s) => s.queue)
   const cancelPrompt = useQueueStore((s) => s.cancelPrompt)
-  const clearCompleted = useQueueStore((s) => s.clearCompleted)
 
-  const pendingCount = queue.filter((p) => p.status === 'pending').length
-  const hasCompleted = queue.some((p) => p.status === 'completed' || p.status === 'cancelled')
+  // Only show pending and processing items (not completed/cancelled/error)
+  const activeQueue = queue.filter((p) => p.status === 'pending' || p.status === 'processing')
 
-  if (queue.length === 0) return null
+  // Only show queue if there are 2+ items (meaning user has queued ahead)
+  if (activeQueue.length <= 1) return null
+
+  const pendingCount = activeQueue.filter((p) => p.status === 'pending').length
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -62,32 +64,22 @@ export function PromptQueue() {
 
   return (
     <div className="border-t border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
-      <div className="px-4 py-2 flex items-center justify-between border-b border-gray-200 dark:border-gray-800">
-        <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />
-          </svg>
-          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            Prompt Queue
+      <div className="px-4 py-2 flex items-center gap-2 border-b border-gray-200 dark:border-gray-800">
+        <svg className="w-4 h-4 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />
+        </svg>
+        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          Prompt Queue
+        </span>
+        {pendingCount > 0 && (
+          <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-full">
+            {pendingCount} pending
           </span>
-          {pendingCount > 0 && (
-            <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-full">
-              {pendingCount} pending
-            </span>
-          )}
-        </div>
-        {hasCompleted && (
-          <button
-            onClick={clearCompleted}
-            className="text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-          >
-            Clear completed
-          </button>
         )}
       </div>
 
       <div className="max-h-48 overflow-y-auto">
-        {queue.map((item, index) => (
+        {activeQueue.map((item, index) => (
           <div
             key={item.id}
             className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 last:border-b-0 hover:bg-gray-100/50 dark:hover:bg-gray-800/50 transition-colors"
