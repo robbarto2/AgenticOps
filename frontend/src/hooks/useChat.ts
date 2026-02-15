@@ -91,8 +91,16 @@ export function useChat() {
           setActiveAgent(null)
           setProcessing(false)
 
-          // Mark current prompt as completed
+          // Mark current prompt as completed and show elapsed time
           if (processingPromptIdRef.current) {
+            const prompt = useQueueStore.getState().queue.find((p) => p.id === processingPromptIdRef.current)
+
+            if (prompt?.startedAt) {
+              const elapsedMs = Date.now() - prompt.startedAt
+              const elapsedSec = (elapsedMs / 1000).toFixed(1)
+              appendToLastAssistant(`\n\n_Completed in ${elapsedSec}s_`)
+            }
+
             setPromptStatus(processingPromptIdRef.current, 'completed')
             processingPromptIdRef.current = null
           }

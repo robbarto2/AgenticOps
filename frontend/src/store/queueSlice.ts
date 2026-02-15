@@ -5,6 +5,8 @@ export interface QueuedPrompt {
   prompt: string
   status: 'pending' | 'processing' | 'completed' | 'cancelled' | 'error'
   addedAt: number
+  startedAt?: number
+  completedAt?: number
 }
 
 interface QueueState {
@@ -53,10 +55,26 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   setPromptStatus: (id: string, status: QueuedPrompt['status']) => {
     set((state) => {
-      // Update the status
-      let newQueue = state.queue.map((p) =>
-        p.id === id ? { ...p, status } : p
-      )
+      const now = Date.now()
+
+      // Update the status with timestamps
+      let newQueue = state.queue.map((p) => {
+        if (p.id !== id) return p
+
+        const updates: Partial<QueuedPrompt> = { status }
+
+        // Track start time when processing begins
+        if (status === 'processing') {
+          updates.startedAt = now
+        }
+
+        // Track completion time when done
+        if (status === 'completed' || status === 'cancelled' || status === 'error') {
+          updates.completedAt = now
+        }
+
+        return { ...p, ...updates }
+      })
 
       // Auto-remove completed, cancelled, and error prompts after a short delay
       if (status === 'completed' || status === 'cancelled' || status === 'error') {
