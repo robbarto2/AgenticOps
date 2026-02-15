@@ -29,6 +29,7 @@ function getDeviceType(model?: string): { type: string; icon: string; color: str
 
   switch (prefix) {
     case 'MS':
+    case 'C9':  // Catalyst switches
       return { type: 'Switch', icon: '🔀', color: 'blue' }
     case 'MR':
     case 'CW':  // Catalyst Wireless access points
@@ -54,7 +55,7 @@ export function DevicePopup({ metadata, deviceName, onClose }: Props) {
   const [ports, setPorts] = useState<SwitchPort[]>([])
   const [loading, setLoading] = useState(false)
 
-  const isSwitch = metadata.model?.startsWith('MS')
+  const isSwitch = metadata.model?.startsWith('MS') || metadata.model?.startsWith('C9')
   const isAccessPoint = metadata.model?.startsWith('MR') || metadata.model?.startsWith('CW')
   const deviceInfo = getDeviceType(metadata.model)
 

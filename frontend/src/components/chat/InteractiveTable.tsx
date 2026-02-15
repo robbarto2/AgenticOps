@@ -3,6 +3,7 @@ import type { TableData } from '../../types/chat'
 import { HoverPopup } from './HoverPopup'
 import { DevicePopup } from './DevicePopup'
 import { TestPopup } from './TestPopup'
+import { ClientPopup } from './ClientPopup'
 
 interface Props {
   tableData: TableData
@@ -106,6 +107,12 @@ export function InteractiveTable({ tableData }: Props) {
           <TestPopup
             metadata={popupRow.metadata as any}
             testName={popupRow.cells[0]}
+            onClose={closePopup}
+          />
+        ) : tableData.entity_type === 'client' ? (
+          <ClientPopup
+            metadata={popupRow.metadata as any}
+            clientName={popupRow.cells[0]}
             onClose={closePopup}
           />
         ) : anchorRect ? (

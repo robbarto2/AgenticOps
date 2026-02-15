@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import type { NetworkDetailCard as NetworkDetailCardType } from '../../types/card'
 import { StatDetailPopover, type DetailType } from './StatDetailPopover'
 
@@ -9,6 +9,30 @@ interface Props {
 export function NetworkDetailCard({ data }: Props) {
   const [activeDetail, setActiveDetail] = useState<DetailType | null>(null)
   const anchorRef = useRef<HTMLButtonElement | null>(null)
+  const [liveStats, setLiveStats] = useState(data.stats)
+
+  // Fetch live stats on mount
+  useEffect(() => {
+    let cancelled = false
+
+    fetch(`/api/entity/network/${data.networkId}/stats`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then((stats) => {
+        if (!cancelled) {
+          setLiveStats(stats)
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to fetch live stats:', err)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [data.networkId])
 
   const handleStatClick = useCallback((type: DetailType, el: HTMLButtonElement) => {
     anchorRef.current = el
@@ -86,21 +110,21 @@ export function NetworkDetailCard({ data }: Props) {
             onClick={(e) => handleStatClick('devices', e.currentTarget)}
             className="text-center p-3 bg-gray-100 dark:bg-gray-800/50 rounded cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
           >
-            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-200">{data.stats.deviceCount}</p>
+            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-200">{liveStats.deviceCount}</p>
             <p className="text-sm text-gray-600 dark:text-gray-500 mt-1">Devices</p>
           </button>
           <button
             onClick={(e) => handleStatClick('clients', e.currentTarget)}
             className="text-center p-3 bg-gray-100 dark:bg-gray-800/50 rounded cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
           >
-            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-200">{data.stats.clientCount}</p>
+            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-200">{liveStats.clientCount}</p>
             <p className="text-sm text-gray-600 dark:text-gray-500 mt-1">Clients</p>
           </button>
           <button
             onClick={(e) => handleStatClick('ssids', e.currentTarget)}
             className="text-center p-3 bg-gray-100 dark:bg-gray-800/50 rounded cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
           >
-            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-200">{data.stats.ssidCount}</p>
+            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-200">{liveStats.ssidCount}</p>
             <p className="text-sm text-gray-600 dark:text-gray-500 mt-1">SSIDs</p>
           </button>
         </div>
