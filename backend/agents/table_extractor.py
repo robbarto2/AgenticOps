@@ -92,6 +92,7 @@ def extract_network_table(tool_results: list[dict]) -> list[dict]:
     Returns a list of table_data dicts suitable for sending as WebSocket events.
     """
     tables = []
+    seen_network_sets = set()  # Track unique sets of network IDs to prevent duplicates
     logger.info("extract_network_table: scanning %d tool results", len(tool_results))
 
     for result in tool_results:
@@ -177,6 +178,13 @@ def extract_network_table(tool_results: list[dict]) -> list[dict]:
             })
 
         if rows:
+            # Check for duplicate tables by comparing network IDs
+            network_ids = frozenset(row["id"] for row in rows)
+            if network_ids in seen_network_sets:
+                logger.info("extract_network_table: skipping duplicate table with %d networks (already seen this set)", len(rows))
+                continue
+            seen_network_sets.add(network_ids)
+
             table = {
                 "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
                 "entity_type": "network",
@@ -294,6 +302,7 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
     Returns a list of table_data dicts suitable for sending as WebSocket events.
     """
     tables = []
+    seen_device_sets = set()  # Track unique sets of device IDs to prevent duplicates
     logger.info("extract_device_table: scanning %d tool results", len(tool_results))
 
     # Detect if user is asking for specific device types
@@ -419,6 +428,13 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
             })
 
         if rows:
+            # Check for duplicate tables by comparing device IDs
+            device_ids = frozenset(row["id"] for row in rows)
+            if device_ids in seen_device_sets:
+                logger.info("extract_device_table: skipping duplicate table with %d devices (already seen this set)", len(rows))
+                continue
+            seen_device_sets.add(device_ids)
+
             if filtered_count > 0:
                 logger.info("extract_device_table: filtered out %d devices (not matching requested types)", filtered_count)
             if network_filtered_count > 0:
@@ -460,6 +476,7 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
     Returns a list of table_data dicts suitable for sending as WebSocket events.
     """
     tables = []
+    seen_test_sets = set()  # Track unique sets of test IDs to prevent duplicates
     logger.info("extract_test_table: scanning %d tool results", len(tool_results))
 
     for result in tool_results:
@@ -542,6 +559,13 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
             })
 
         if rows:
+            # Check for duplicate tables by comparing test IDs
+            test_ids = frozenset(row["id"] for row in rows)
+            if test_ids in seen_test_sets:
+                logger.info("extract_test_table: skipping duplicate table with %d tests (already seen this set)", len(rows))
+                continue
+            seen_test_sets.add(test_ids)
+
             table = {
                 "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
                 "entity_type": "test",
@@ -584,6 +608,7 @@ def extract_client_table(tool_results: list[dict]) -> list[dict]:
     Returns a list of table_data dicts suitable for sending as WebSocket events.
     """
     tables = []
+    seen_client_sets = set()  # Track unique sets of client MACs to prevent duplicates
     logger.info("extract_client_table: scanning %d tool results", len(tool_results))
 
     for result in tool_results:
@@ -680,6 +705,13 @@ def extract_client_table(tool_results: list[dict]) -> list[dict]:
             })
 
         if rows:
+            # Check for duplicate tables by comparing client MACs
+            client_macs = frozenset(row["id"] for row in rows)
+            if client_macs in seen_client_sets:
+                logger.info("extract_client_table: skipping duplicate table with %d clients (already seen this set)", len(rows))
+                continue
+            seen_client_sets.add(client_macs)
+
             table = {
                 "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
                 "entity_type": "client",
