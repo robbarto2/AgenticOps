@@ -5,7 +5,7 @@ import type { WebSocketInEvent } from '../types/websocket'
 export function useWebSocket(onMessage: (event: WebSocketInEvent) => void) {
   const wsRef = useRef<WebSocket | null>(null)
   const setStatus = useConnectionStore((s) => s.setStatus)
-  const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>()
+  const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const onMessageRef = useRef(onMessage)
   onMessageRef.current = onMessage
 

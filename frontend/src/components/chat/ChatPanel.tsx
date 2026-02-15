@@ -7,6 +7,7 @@ import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 import { AgentIndicator } from './AgentIndicator'
 import { ConfirmationModal } from './ConfirmationModal'
+import { PromptQueue } from './PromptQueue'
 
 const CHAT_MODES: { mode: ChatMode; label: string; description: string; icon: JSX.Element }[] = [
   {
@@ -166,6 +167,9 @@ export function ChatPanel({ onHeaderMouseDown }: ChatPanelProps = {}) {
 
       {/* Remediation Confirmation */}
       <ConfirmationModal />
+
+      {/* Prompt Queue */}
+      <PromptQueue />
 
       {/* Input */}
       <ChatInput onSend={sendMessage} onStop={stopProcessing} />

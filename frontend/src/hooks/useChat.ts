@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useChatStore } from '../store/chatSlice'
 import { useCanvasStore } from '../store/canvasSlice'
+import { useQueueStore } from '../store/queueSlice'
 import { useWebSocket } from './useWebSocket'
 import type { WebSocketInEvent, AgentStartData, ToolCallData, CardData, AgentPlanData, ConfirmationRequestData } from '../types/websocket'
 import type { AnyCard } from '../types/card'
@@ -23,7 +24,10 @@ export function useChat() {
     setPendingConfirmation,
   } = useChatStore()
   const addCard = useCanvasStore((s) => s.addCard)
-  const responseTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  const getNextPending = useQueueStore((s) => s.getNextPending)
+  const setPromptStatus = useQueueStore((s) => s.setPromptStatus)
+  const responseTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const processingPromptIdRef = useRef<string | null>(null)
 
   const handleMessage = useCallback(
     (event: WebSocketInEvent) => {
@@ -86,6 +90,13 @@ export function useChat() {
           clearToolCalls()
           setActiveAgent(null)
           setProcessing(false)
+
+          // Mark current prompt as completed
+          if (processingPromptIdRef.current) {
+            setPromptStatus(processingPromptIdRef.current, 'completed')
+            processingPromptIdRef.current = null
+          }
+          // Next prompt will be auto-processed by useEffect
           break
         }
 
@@ -94,17 +105,29 @@ export function useChat() {
           appendToLastAssistant(
             `\n\n_Error: ${errData?.message ?? 'Unknown error'}_`
           )
+
+          // Mark current prompt as error
+          if (processingPromptIdRef.current) {
+            setPromptStatus(processingPromptIdRef.current, 'error')
+            processingPromptIdRef.current = null
+          }
+          setProcessing(false)
+          // Next prompt will be auto-processed by useEffect
           break
         }
       }
     },
-    [addMessage, appendToLastAssistant, attachTableData, setActiveAgent, addToolCall, updateToolCall, setProcessing, clearToolCalls, addCard, setAgentPlan, setPendingConfirmation]
+    [addMessage, appendToLastAssistant, attachTableData, setActiveAgent, addToolCall, updateToolCall, setProcessing, clearToolCalls, addCard, setAgentPlan, setPendingConfirmation, setPromptStatus]
   )
 
   const { sendMessage: wsSend, sendStop: wsStop, sendRaw } = useWebSocket(handleMessage)
 
-  const sendMessage = useCallback(
-    (content: string) => {
+  // Process a prompt from the queue
+  const processPrompt = useCallback(
+    (promptId: string, content: string) => {
+      processingPromptIdRef.current = promptId
+      setPromptStatus(promptId, 'processing')
+
       addMessage({
         id: crypto.randomUUID(),
         role: 'user',
@@ -122,9 +145,34 @@ export function useChat() {
         setProcessing(false)
         setActiveAgent(null)
         clearToolCalls()
+        if (processingPromptIdRef.current) {
+          setPromptStatus(processingPromptIdRef.current, 'error')
+          processingPromptIdRef.current = null
+        }
       }, RESPONSE_TIMEOUT_MS)
     },
-    [addMessage, setProcessing, wsSend, appendToLastAssistant, setActiveAgent, clearToolCalls]
+    [addMessage, setProcessing, wsSend, appendToLastAssistant, setActiveAgent, clearToolCalls, setPromptStatus]
+  )
+
+  // Auto-process next prompt from queue when idle
+  const isProcessing = useChatStore((s) => s.isProcessing)
+  const queueLength = useQueueStore((s) => s.queue.length)
+  useEffect(() => {
+    if (!isProcessing && !processingPromptIdRef.current) {
+      const nextPrompt = getNextPending()
+      if (nextPrompt) {
+        processPrompt(nextPrompt.id, nextPrompt.prompt)
+      }
+    }
+  }, [isProcessing, queueLength, getNextPending, processPrompt])
+
+  // Legacy sendMessage for backward compatibility (adds to queue)
+  const sendMessage = useCallback(
+    (content: string) => {
+      useQueueStore.getState().addPrompt(content)
+      // Processing will be triggered by the useEffect above
+    },
+    []
   )
 
   const sendConfirmation = useCallback(
@@ -151,7 +199,12 @@ export function useChat() {
       clearTimeout(responseTimeoutRef.current)
       responseTimeoutRef.current = undefined
     }
-  }, [wsStop, setProcessing, setActiveAgent, clearToolCalls])
+    // Mark current prompt as cancelled
+    if (processingPromptIdRef.current) {
+      setPromptStatus(processingPromptIdRef.current, 'cancelled')
+      processingPromptIdRef.current = null
+    }
+  }, [wsStop, setProcessing, setActiveAgent, clearToolCalls, setPromptStatus])
 
   // Cleanup timeout on unmount
   useEffect(() => {
