@@ -4,9 +4,23 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 
 logger = logging.getLogger(__name__)
+
+# Device type filters based on model prefixes
+_DEVICE_TYPE_PREFIXES = {
+    "switch": ["MS", "C9"],  # Meraki switches and Catalyst switches
+    "access_point": ["MR", "CW"],  # Meraki and Catalyst Wireless APs
+    "ap": ["MR", "CW"],
+    "wireless": ["MR", "CW"],
+    "appliance": ["MX"],
+    "firewall": ["MX"],
+    "camera": ["MV"],
+    "sensor": ["MT"],
+    "gateway": ["MG"],
+}
 
 # Tool names and method names that return organization networks
 _NETWORK_TOOL_NAMES = {"getOrganizationNetworks", "getorganizationnetworks"}
@@ -15,6 +29,43 @@ _NETWORK_METHOD_NAMES = {"getOrganizationNetworks", "getorganizationnetworks"}
 # Tool names and method names that return network devices
 _DEVICE_TOOL_NAMES = {"getNetworkDevices", "getnetworkdevices", "getOrganizationDevices", "getorganizationdevices"}
 _DEVICE_METHOD_NAMES = {"getNetworkDevices", "getnetworkdevices", "getOrganizationDevices", "getorganizationdevices"}
+
+# Tool names and method names that return network clients
+_CLIENT_TOOL_NAMES = {"getNetworkClients", "getnetworkclients"}
+_CLIENT_METHOD_NAMES = {"getNetworkClients", "getnetworkclients"}
+
+
+def _read_cached_file(filepath: str) -> list | None:
+    """Read full data from a Meraki MCP cached file."""
+    try:
+        # Handle relative paths - assume they're relative to Meraki Magic MCP directory
+        if not os.path.isabs(filepath):
+            # Try relative to project root first
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            full_path = os.path.join(project_root, "..", "Meraki Magic MCP", filepath)
+            if not os.path.exists(full_path):
+                # Try as absolute from current directory
+                full_path = os.path.abspath(filepath)
+        else:
+            full_path = filepath
+
+        if not os.path.exists(full_path):
+            logger.warning("_read_cached_file: file not found: %s", full_path)
+            return None
+
+        with open(full_path, 'r') as f:
+            cached = json.load(f)
+            # Cached file structure: {"data": [...], "metadata": {...}}
+            data = cached.get("data")
+            if isinstance(data, list):
+                logger.info("_read_cached_file: loaded %d items from %s", len(data), filepath)
+                return data
+            else:
+                logger.warning("_read_cached_file: 'data' field is not a list in %s", filepath)
+                return None
+    except Exception as e:
+        logger.error("_read_cached_file: failed to read %s: %s", filepath, e)
+        return None
 
 
 def _is_network_result(result: dict) -> bool:
@@ -61,19 +112,30 @@ def extract_network_table(tool_results: list[dict]) -> list[dict]:
 
         # Handle truncated responses — the MCP may wrap large results
         if isinstance(networks, dict):
-            # Check for sample/data fields in truncated responses
-            # _preview is used by Meraki MCP for truncated large responses
-            sample = networks.get("_preview") or networks.get("_sample") or networks.get("data") or networks.get("results")
-            if isinstance(sample, list):
-                logger.info("extract_network_table: extracted %d networks from wrapped response", len(sample))
-                networks = sample
+            # Check if response was truncated and full data is cached
+            if networks.get("_response_truncated") and networks.get("_full_response_cached"):
+                cached_file = networks["_full_response_cached"]
+                logger.info("extract_network_table: response was truncated, reading full data from %s", cached_file)
+                full_data = _read_cached_file(cached_file)
+                if full_data is not None:
+                    networks = full_data
+                else:
+                    # Fall back to preview if we can't read the cached file
+                    logger.warning("extract_network_table: failed to read cached file, using preview")
+                    networks = networks.get("_preview") or []
             else:
-                logger.warning("extract_network_table: result is a dict, not a list (keys: %s)",
-                               list(networks.keys())[:10])
-                # Log error details if this looks like an error response
-                if "error" in networks or "message" in networks:
-                    logger.error("extract_network_table: API error response: %s", networks)
-                continue
+                # Check for sample/data fields in wrapped responses
+                sample = networks.get("data") or networks.get("results") or networks.get("_preview") or networks.get("_sample")
+                if isinstance(sample, list):
+                    logger.info("extract_network_table: extracted %d networks from wrapped response", len(sample))
+                    networks = sample
+                else:
+                    logger.warning("extract_network_table: result is a dict, not a list (keys: %s)",
+                                   list(networks.keys())[:10])
+                    # Log error details if this looks like an error response
+                    if "error" in networks or "message" in networks:
+                        logger.error("extract_network_table: API error response: %s", networks)
+                    continue
 
         if not isinstance(networks, list):
             logger.warning("extract_network_table: parsed result is %s, not a list", type(networks).__name__)
@@ -151,13 +213,100 @@ def _is_device_result(result: dict) -> bool:
     return False
 
 
-def extract_device_table(tool_results: list[dict]) -> list[dict]:
+def _should_filter_device(model: str, filter_types: list[str]) -> bool:
+    """Check if a device model matches any of the filter types."""
+    if not filter_types or not model:
+        return True  # No filter or no model - include everything
+
+    model_prefix = model[:2].upper()
+    for device_type in filter_types:
+        type_key = device_type.lower().replace(" ", "_")
+        if type_key in _DEVICE_TYPE_PREFIXES:
+            if model_prefix in _DEVICE_TYPE_PREFIXES[type_key]:
+                return True
+    return False
+
+
+def _extract_network_map(tool_results: list[dict]) -> dict[str, str]:
+    """Build a map of network names (lowercase) to networkIds from getOrganizationNetworks results."""
+    network_map = {}
+
+    for result in tool_results:
+        if not _is_network_result(result):
+            continue
+
+        raw = result.get("result", "")
+        networks = _parse_result(raw)
+
+        if networks is None:
+            continue
+
+        # Handle truncated responses
+        if isinstance(networks, dict):
+            if networks.get("_response_truncated") and networks.get("_full_response_cached"):
+                cached_file = networks["_full_response_cached"]
+                full_data = _read_cached_file(cached_file)
+                if full_data is not None:
+                    networks = full_data
+                else:
+                    networks = networks.get("_preview") or []
+            else:
+                sample = networks.get("data") or networks.get("results") or networks.get("_preview")
+                if isinstance(sample, list):
+                    networks = sample
+                else:
+                    continue
+
+        if not isinstance(networks, list):
+            continue
+
+        for net in networks:
+            if isinstance(net, dict):
+                name = net.get("name", "").lower()
+                network_id = net.get("id", "")
+                if name and network_id:
+                    network_map[name] = network_id
+                    logger.debug("_extract_network_map: mapped '%s' -> %s", name, network_id)
+
+    logger.info("_extract_network_map: built map with %d networks", len(network_map))
+    return network_map
+
+
+def _detect_network_filter(user_query: str, network_map: dict[str, str]) -> str | None:
+    """Detect if user is asking for devices in a specific network."""
+    if not network_map:
+        return None
+
+    query_lower = user_query.lower()
+
+    # Look for network names in the query
+    for network_name, network_id in network_map.items():
+        if network_name in query_lower:
+            logger.info("_detect_network_filter: detected network filter '%s' (id=%s)", network_name, network_id)
+            return network_id
+
+    return None
+
+
+def extract_device_table(tool_results: list[dict], user_query: str = "") -> list[dict]:
     """Find device listing results and build structured table data.
 
     Returns a list of table_data dicts suitable for sending as WebSocket events.
     """
     tables = []
     logger.info("extract_device_table: scanning %d tool results", len(tool_results))
+
+    # Detect if user is asking for specific device types
+    filter_types = []
+    query_lower = user_query.lower()
+    for device_type in _DEVICE_TYPE_PREFIXES.keys():
+        if device_type in query_lower or device_type.replace("_", " ") in query_lower:
+            filter_types.append(device_type)
+            logger.info("extract_device_table: detected filter for device type '%s'", device_type)
+
+    # Detect if user is asking for devices in a specific network
+    network_map = _extract_network_map(tool_results)
+    filter_network_id = _detect_network_filter(user_query, network_map)
 
     for result in tool_results:
         tool_name = result.get("tool", "")
@@ -176,18 +325,30 @@ def extract_device_table(tool_results: list[dict]) -> list[dict]:
 
         # Handle truncated responses
         if isinstance(devices, dict):
-            # _preview is used by Meraki MCP for truncated large responses
-            sample = devices.get("_preview") or devices.get("_sample") or devices.get("data") or devices.get("results")
-            if isinstance(sample, list):
-                logger.info("extract_device_table: extracted %d devices from wrapped response", len(sample))
-                devices = sample
+            # Check if response was truncated and full data is cached
+            if devices.get("_response_truncated") and devices.get("_full_response_cached"):
+                cached_file = devices["_full_response_cached"]
+                logger.info("extract_device_table: response was truncated, reading full data from %s", cached_file)
+                full_data = _read_cached_file(cached_file)
+                if full_data is not None:
+                    devices = full_data
+                else:
+                    # Fall back to preview if we can't read the cached file
+                    logger.warning("extract_device_table: failed to read cached file, using preview")
+                    devices = devices.get("_preview") or []
             else:
-                logger.warning("extract_device_table: result is a dict, not a list (keys: %s)",
-                               list(devices.keys())[:10])
-                # Log error details if this looks like an error response
-                if "error" in devices or "message" in devices:
-                    logger.error("extract_device_table: API error response: %s", devices)
-                continue
+                # Check for sample/data fields in wrapped responses
+                sample = devices.get("data") or devices.get("results") or devices.get("_preview") or devices.get("_sample")
+                if isinstance(sample, list):
+                    logger.info("extract_device_table: extracted %d devices from wrapped response", len(sample))
+                    devices = sample
+                else:
+                    logger.warning("extract_device_table: result is a dict, not a list (keys: %s)",
+                                   list(devices.keys())[:10])
+                    # Log error details if this looks like an error response
+                    if "error" in devices or "message" in devices:
+                        logger.error("extract_device_table: API error response: %s", devices)
+                    continue
 
         if not isinstance(devices, list):
             logger.warning("extract_device_table: parsed result is %s, not a list", type(devices).__name__)
@@ -196,6 +357,8 @@ def extract_device_table(tool_results: list[dict]) -> list[dict]:
         logger.info("extract_device_table: building rows from %d devices", len(devices))
 
         rows = []
+        filtered_count = 0
+        network_filtered_count = 0
         for dev in devices:
             if not isinstance(dev, dict):
                 continue
@@ -203,12 +366,23 @@ def extract_device_table(tool_results: list[dict]) -> list[dict]:
             serial = dev.get("serial", "")
             name = dev.get("name", "") or serial
             model = dev.get("model", "")
+            network_id = dev.get("networkId", "")
+
+            # Apply device type filter if specified
+            if filter_types and not _should_filter_device(model, filter_types):
+                filtered_count += 1
+                continue
+
+            # Apply network filter if specified
+            if filter_network_id and network_id != filter_network_id:
+                network_filtered_count += 1
+                continue
+
             lan_ip = dev.get("lanIp", "") or dev.get("ip", "")
             status = dev.get("status", "")
             firmware = dev.get("firmware", "")
             tags = dev.get("tags", [])
             notes = dev.get("notes", "")
-            network_id = dev.get("networkId", "")
 
             # Determine status type for coloring
             status_type = "normal"
@@ -245,6 +419,10 @@ def extract_device_table(tool_results: list[dict]) -> list[dict]:
             })
 
         if rows:
+            if filtered_count > 0:
+                logger.info("extract_device_table: filtered out %d devices (not matching requested types)", filtered_count)
+            if network_filtered_count > 0:
+                logger.info("extract_device_table: filtered out %d devices (not in target network)", network_filtered_count)
             table = {
                 "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
                 "entity_type": "device",
@@ -378,6 +556,137 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
 
     if not tables:
         logger.info("extract_test_table: no test tables extracted from tool results")
+
+    return tables
+
+
+def _is_client_result(result: dict) -> bool:
+    """Check if a tool result contains client data."""
+    tool_name = result.get("tool", "")
+
+    # Direct match: client listing tools
+    if tool_name.lower().rstrip() in _CLIENT_TOOL_NAMES:
+        return True
+
+    # Generic call_meraki_api tool with client method
+    if tool_name == "call_meraki_api":
+        tool_args = result.get("tool_args", {})
+        method = tool_args.get("method", "")
+        if method.lower().rstrip() in _CLIENT_METHOD_NAMES:
+            return True
+
+    return False
+
+
+def extract_client_table(tool_results: list[dict]) -> list[dict]:
+    """Find getNetworkClients results and build structured table data.
+
+    Returns a list of table_data dicts suitable for sending as WebSocket events.
+    """
+    tables = []
+    logger.info("extract_client_table: scanning %d tool results", len(tool_results))
+
+    for result in tool_results:
+        tool_name = result.get("tool", "")
+
+        if not _is_client_result(result):
+            continue
+
+        logger.info("extract_client_table: found client result from tool '%s'", tool_name)
+
+        raw = result.get("result", "")
+        clients = _parse_result(raw)
+
+        if clients is None:
+            logger.warning("extract_client_table: failed to parse result from '%s' (raw type: %s, length: %s)",
+                          tool_name, type(raw).__name__, len(str(raw)))
+            continue
+
+        # Handle wrapped responses
+        if isinstance(clients, dict):
+            # Check for truncated response with cached file
+            if clients.get("_response_truncated") and clients.get("_full_response_cached"):
+                cached_file = clients["_full_response_cached"]
+                full_data = _read_cached_file(cached_file)
+                if full_data is not None:
+                    clients = full_data
+                else:
+                    # Use preview data if available
+                    clients = clients.get("_preview") or []
+            else:
+                # Try common wrapper fields
+                sample = clients.get("data") or clients.get("results") or clients.get("_preview")
+                if isinstance(sample, list):
+                    clients = sample
+                else:
+                    continue
+
+        if not isinstance(clients, list):
+            logger.warning("extract_client_table: parsed result is %s, not a list", type(clients).__name__)
+            continue
+
+        logger.info("extract_client_table: building rows from %d clients", len(clients))
+
+        rows = []
+        for client in clients:
+            if not isinstance(client, dict):
+                continue
+
+            # Extract client fields
+            description = client.get("description") or client.get("hostname") or client.get("dhcpHostname") or ""
+            mac = client.get("mac", "")
+            ip = client.get("ip") or client.get("ip6", "")
+            vlan = str(client.get("vlan", ""))
+            manufacturer = client.get("manufacturer", "")
+
+            # Use first seen or last seen
+            first_seen = client.get("firstSeen", "")
+            last_seen = client.get("lastSeen", "")
+
+            # Status
+            status = client.get("status", "Online")
+
+            # SSID for wireless clients
+            ssid = client.get("ssid", "")
+
+            rows.append({
+                "id": mac,  # Use MAC as unique ID
+                "cells": [
+                    description or mac,  # Description/Hostname
+                    mac,  # MAC Address
+                    ip,  # IP Address
+                    vlan or "-",  # VLAN
+                    ssid or "-",  # SSID (if wireless)
+                    manufacturer or "-",  # Manufacturer
+                ],
+                "metadata": {
+                    "description": description,
+                    "mac": mac,
+                    "ip": ip,
+                    "vlan": vlan,
+                    "ssid": ssid,
+                    "manufacturer": manufacturer,
+                    "status": status,
+                    "firstSeen": first_seen,
+                    "lastSeen": last_seen,
+                },
+            })
+
+        if rows:
+            table = {
+                "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
+                "entity_type": "client",
+                "source": "meraki",
+                "columns": ["Description", "MAC Address", "IP Address", "VLAN", "SSID", "Manufacturer"],
+                "rows": rows,
+            }
+            tables.append(table)
+            logger.info("extract_client_table: built table with %d rows (id=%s)", len(rows), table["table_id"])
+        else:
+            logger.warning("extract_client_table: no valid rows extracted from %d clients", len(clients))
+
+    if not tables:
+        logger.info("extract_client_table: no client tables extracted from tool results")
 
     return tables
 

@@ -66,6 +66,13 @@ class SsidDetail(BaseModel):
     enabled: bool
 
 
+class ChannelUtilization(BaseModel):
+    """Channel utilization for a wireless band."""
+
+    band: str  # '2.4', '5', or '6'
+    utilization: float  # 0-100 percentage
+
+
 class WebSocketMessage(BaseModel):
     """Incoming WebSocket message from client."""
 

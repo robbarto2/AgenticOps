@@ -4,6 +4,7 @@ import type { AnyCard } from '../types/card'
 import { getNextCardPosition } from '../utils/cardPositioning'
 import { getCardCategory, getCategoryLabel, getCategoryColor } from '../utils/cardCategories'
 import type { CardCategory } from '../utils/cardCategories'
+import { useToastStore } from './toastSlice'
 
 export interface CardStack {
   id: string
@@ -47,12 +48,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         switch (c.type) {
           case 'switch_detail':
             return `switch:${c.data.serial}`
+          case 'access_point_detail':
+            return `ap:${c.data.serial}`
           case 'network_detail':
             return `network:${c.data.networkId}`
           case 'test_detail':
             return `test:${c.data.testId}`
           case 'org_summary':
             return 'org_summary' // Only one org summary
+          case 'topology':
+            return `topology:${c.data.networkName ?? c.title}`
           case 'data_table':
           case 'bar_chart':
           case 'line_chart':
@@ -71,19 +76,30 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       if (newCardKey) {
         const duplicate = state.cards.find(c => getCardKey(c) === newCardKey)
         if (duplicate) {
-          console.log(`Card already exists on canvas: ${card.title}`)
+          // Show toast notification
+          useToastStore.getState().addToast(`Card already exists on canvas: ${card.title}`, 'warning')
           // Don't add duplicate - just return current state
           return state
         }
       }
 
       const position = getNextCardPosition(state.nodes.length)
+
+      // Set default size based on card type
+      let defaultWidth = 650
+      let defaultHeight = 380
+
+      // Access point cards need more height for channel utilization display
+      if (card.type === 'access_point_detail') {
+        defaultHeight = 480
+      }
+
       const newNode: Node = {
         id: card.id,
         type: 'cardNode',
         position,
         data: card,
-        style: { width: 700, height: 500 },
+        style: { width: defaultWidth, height: defaultHeight },
       }
       return {
         cards: [...state.cards, card],

@@ -8,7 +8,9 @@ export type CardType =
   | 'network_detail'
   | 'org_summary'
   | 'switch_detail'
+  | 'access_point_detail'
   | 'test_detail'
+  | 'topology'
 
 export interface CardBase {
   id: string
@@ -149,6 +151,28 @@ export interface SwitchDetailCard extends CardBase {
   }
 }
 
+export interface ChannelUtilization {
+  band: '2.4' | '5' | '6'
+  utilization: number  // 0-100 percentage
+}
+
+export interface AccessPointDetailCard extends CardBase {
+  type: 'access_point_detail'
+  data: {
+    serial: string
+    model: string
+    lanIp?: string
+    firmware?: string
+    networkId?: string
+    clientCount?: number
+    ssidCount?: number
+    status?: string
+    tags?: string[]
+    notes?: string
+    channelUtilization?: ChannelUtilization[]
+  }
+}
+
 export interface TestAgent {
   agentId: string
   agentName: string
@@ -195,6 +219,44 @@ export interface TestDetailCard extends CardBase {
   }
 }
 
+export type TopologyDeviceType =
+  | 'mx'
+  | 'ms'
+  | 'mr'
+  | 'mv'
+  | 'mg'
+  | 'mt'
+  | 'client'
+  | 'internet'
+  | 'unknown'
+
+export interface TopologyNode {
+  id: string
+  label: string
+  deviceType: TopologyDeviceType
+  status?: 'online' | 'offline' | 'dormant'
+  ip?: string
+  model?: string
+  serial?: string
+}
+
+export interface TopologyLink {
+  source: string
+  target: string
+  linkType?: 'wired' | 'wireless' | 'wan' | 'vpn'
+  label?: string
+  speed?: string
+}
+
+export interface TopologyCard extends CardBase {
+  type: 'topology'
+  data: {
+    nodes: TopologyNode[]
+    links: TopologyLink[]
+    networkName?: string
+  }
+}
+
 export type AnyCard =
   | DataTableCard
   | BarChartCard
@@ -205,4 +267,6 @@ export type AnyCard =
   | NetworkDetailCard
   | OrgSummaryCard
   | SwitchDetailCard
+  | AccessPointDetailCard
   | TestDetailCard
+  | TopologyCard

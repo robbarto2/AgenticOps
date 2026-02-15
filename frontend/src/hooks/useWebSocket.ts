@@ -47,9 +47,13 @@ export function useWebSocket(onMessage: (event: WebSocketInEvent) => void) {
     connect()
     return () => {
       clearTimeout(reconnectTimeout.current)
-      wsRef.current?.close()
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
     }
-  }, [connect])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const sendMessage = useCallback((content: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

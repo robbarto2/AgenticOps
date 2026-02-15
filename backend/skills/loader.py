@@ -29,6 +29,7 @@ AGENT_SKILLS: dict[str, list[str]] = {
     "discovery": [
         "network_inventory.md",
         "organizational_summary.md",
+        "network_topology.md",
     ],
     "testing": [
         "instant_testing.md",

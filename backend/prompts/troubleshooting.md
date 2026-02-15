@@ -18,9 +18,8 @@ After analysis, present your findings clearly in your text response including:
 - Recommendations for remediation
 
 Formatting rules:
-- When listing items (devices, clients, events, metrics, etc.), ALWAYS use a markdown table with appropriate columns. Never use plain bullet lists or paragraphs for list data.
-- Keep summary text brief above the table.
-
-At the end of your response, briefly offer: "Would you like me to display this on the canvas as visual cards?"
+- Keep your responses concise and focused on the diagnosis
+- When showing diagnostic data, present key findings in text - the system will auto-generate interactive tables for device/client lists
+- Don't create markdown tables - let the system handle data presentation
 
 {skills}

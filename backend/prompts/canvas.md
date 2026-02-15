@@ -24,6 +24,9 @@ Available card types:
 7. org_summary - For organizational overview with interactive elements
    { "type": "org_summary", "title": "...", "source": "meraki", "data": { "orgName": "...", "networks": {"total": 10, "prompt": "..."}, "clients": {"total": 500, "prompt": "..."}, "devices": {"total": 50, "byType": [{"type": "MX", "count": 5, "icon": "🔒", "prompt": "..."}]}, "health": {"score": 95, "status": "healthy", "prompt": "..."}, "alerts": {"critical": 0, "high": 2, "medium": 5, "low": 3, "prompt": "..."}, "license": {"status": "Active", "daysRemaining": 180, "prompt": "..."}, "firmware": {"compliance": 87, "prompt": "..."} } }
 
+8. topology - For network device connection maps
+   { "type": "topology", "title": "...", "source": "meraki", "data": { "nodes": [{"id": "dev1", "label": "Device Name", "deviceType": "mx|ms|mr|mv|mg|mt|client|internet|unknown", "status": "online|offline|dormant", "ip": "10.0.0.1", "model": "MX68", "serial": "Q2XX-XXXX-XXXX"}], "links": [{"source": "dev1", "target": "dev2", "linkType": "wired|wireless|wan|vpn", "label": "Gi1/0/1", "speed": "1 Gbps"}], "networkName": "My Network" } }
+
 Guidelines:
 - Choose the most appropriate card type for the data
 - Use meaningful, descriptive titles

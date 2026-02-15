@@ -57,10 +57,13 @@ _FAST_ROUTES: list[tuple[re.Pattern, str]] = [
     # Remediation agent — write/change operations
     (re.compile(r"\b(fix|change|update|set|modify|disable|enable|configure|remediate|close|block|add\s+(a\s+)?rule)\b.*\b(port|ssid|vlan|firewall|rule|network|config)\b", re.IGNORECASE), "remediation"),
     (re.compile(r"\b(port|ssid|vlan|firewall|rule)\b.*\b(fix|change|update|set|modify|disable|enable|configure|remediate|close|block)\b", re.IGNORECASE), "remediation"),
-    # Existing routes
-    (re.compile(r"\b(list|show|get|what).*(network|site)s?\b", re.IGNORECASE), "discovery"),
-    (re.compile(r"\b(inventory|device|topology|health|overview|status|organization)\b", re.IGNORECASE), "discovery"),
-    (re.compile(r"\b(wifi|wireless|latency|slow|disconnect|packet.?loss|performance|wan|uplink|connectivity|path|trace|traceroute|hop|visuali[zs]ation)\b", re.IGNORECASE), "troubleshooting"),
+    # Discovery agent — listing/inventory queries (must come before troubleshooting)
+    (re.compile(r"\b(list|show|get|what|display).*(network|site|device|ap|access\s+point|switch|appliance|camera|sensor|client|ssid)s?\b", re.IGNORECASE), "discovery"),
+    (re.compile(r"\b(inventory|topology|health|overview|status|organization)\b", re.IGNORECASE), "discovery"),
+    # Troubleshooting agent — only match when there are actual problem indicators
+    (re.compile(r"\b(slow|issue|problem|not\s+working|can'?t|won'?t|fail|error|down|offline|disconnect|latency|packet.?loss|degraded|poor)\b", re.IGNORECASE), "troubleshooting"),
+    (re.compile(r"\b(troubleshoot|diagnose|debug|investigate|trace|traceroute|path\s+visuali[zs]ation)\b", re.IGNORECASE), "troubleshooting"),
+    # Security and compliance
     (re.compile(r"\b(firewall|security|threat|acl|ids|ips|malware|vulnerab)\b", re.IGNORECASE), "security"),
     (re.compile(r"\b(compliance|audit|policy|best.?practice|config.*(check|review|audit))\b", re.IGNORECASE), "compliance"),
 ]

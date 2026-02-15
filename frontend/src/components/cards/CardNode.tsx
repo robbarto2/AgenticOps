@@ -13,7 +13,9 @@ import { NetworkHealthCard } from './NetworkHealthCard'
 import { NetworkDetailCard } from './NetworkDetailCard'
 import { OrgSummaryCard } from './OrgSummaryCard'
 import { SwitchDetailCard } from './SwitchDetailCard'
+import { AccessPointDetailCard } from './AccessPointDetailCard'
 import { TestDetailCard } from './TestDetailCard'
+import { TopologyCard } from './TopologyCard'
 
 function cardAccentColor(type: string): string {
   switch (type) {
@@ -23,9 +25,13 @@ function cardAccentColor(type: string): string {
     case 'org_summary':
       return '#8b5cf6' // purple — org-level
     case 'switch_detail':
-      return '#3b82f6' // blue — device-level
+      return '#3b82f6' // blue — switches
+    case 'access_point_detail':
+      return '#22c55e' // green — wireless APs (brighter green than network)
     case 'test_detail':
       return '#06b6d4' // cyan — tests
+    case 'topology':
+      return '#a855f7' // purple-500 — topology
     case 'alert_summary':
       return '#f59e0b' // amber — alerts
     case 'bar_chart':
@@ -68,8 +74,12 @@ function CardNodeInner({ data, selected }: NodeProps) {
         return <OrgSummaryCard data={card.data} />
       case 'switch_detail':
         return <SwitchDetailCard data={card.data} />
+      case 'access_point_detail':
+        return <AccessPointDetailCard data={card.data} />
       case 'test_detail':
         return <TestDetailCard card={card} />
+      case 'topology':
+        return <TopologyCard data={card.data} />
       default:
         return (
           <p className="text-xs text-gray-500 p-2">
@@ -89,7 +99,7 @@ function CardNodeInner({ data, selected }: NodeProps) {
         handleStyle={{ backgroundColor: '#3b82f6', width: 8, height: 8 }}
       />
       <div
-        className="bg-white dark:bg-gray-900 border-2 rounded-lg shadow-xl overflow-hidden"
+        className="bg-white dark:bg-gray-900 border-2 rounded-lg shadow-xl overflow-hidden w-full h-full flex flex-col"
         style={{ borderColor: accent }}
       >
         <CardHeader
@@ -100,7 +110,7 @@ function CardNodeInner({ data, selected }: NodeProps) {
           onClose={() => removeCard(card.id)}
         />
         {!card.collapsed && (
-          <div className="p-4 card-content nodrag nopan nowheel select-text cursor-auto">{renderContent()}</div>
+          <div className="p-3 card-content nodrag nopan nowheel select-text cursor-auto flex-1 overflow-auto min-h-0">{renderContent()}</div>
         )}
       </div>
     </>

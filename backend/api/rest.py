@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from api.models import (
+    ChannelUtilization,
     ClientDetail,
     DeviceDetail,
     EntityStatsResponse,
@@ -182,6 +183,7 @@ async def network_ssids(network_id: str) -> list[SsidDetail]:
         parsed = _parse_json(result.get("content", ""))
         if not isinstance(parsed, list):
             return []
+        # Only return enabled SSIDs (ones that are actually broadcasting)
         return [
             SsidDetail(
                 name=s.get("name", ""),
@@ -189,13 +191,105 @@ async def network_ssids(network_id: str) -> list[SsidDetail]:
                 enabled=bool(s.get("enabled", False)),
             )
             for s in parsed
-            if isinstance(s, dict)
+            if isinstance(s, dict) and s.get("enabled", False)
         ]
     except HTTPException:
         raise
     except Exception:
         logger.exception("Failed to fetch SSIDs for %s", network_id)
         raise HTTPException(status_code=500, detail="Failed to fetch SSIDs")
+
+
+@router.get("/device/{serial}/channel-utilization", response_model=list[ChannelUtilization])
+async def device_channel_utilization(serial: str, network_id: str = None) -> list[ChannelUtilization]:
+    """Fetch wireless channel utilization for a specific access point."""
+    if not mcp_manager.meraki_connected:
+        raise HTTPException(status_code=503, detail="Meraki MCP not connected")
+
+    # If no network_id provided, fetch it from the device
+    if not network_id:
+        try:
+            device_result = await mcp_manager.call_tool("getDevice", {"serial": serial})
+            if "error" not in device_result:
+                device_data = _parse_json(device_result.get("content", ""))
+                if isinstance(device_data, dict):
+                    network_id = device_data.get("networkId")
+        except Exception:
+            logger.warning("Failed to fetch networkId for device %s", serial)
+
+    if not network_id:
+        raise HTTPException(status_code=400, detail="networkId is required but could not be determined")
+
+    try:
+        # Fetch channel utilization for each band (2.4GHz, 5GHz, 6GHz)
+        # The Meraki API requires: networkId, deviceSerial, AND band
+        utilization_list = []
+        bands = ["2.4", "5", "6"]
+
+        for band in bands:
+            try:
+                result = await mcp_manager.call_tool(
+                    "call_meraki_api",
+                    {
+                        "section": "wireless",
+                        "method": "getNetworkWirelessChannelUtilizationHistory",
+                        "parameters": {
+                            "networkId": network_id,
+                            "deviceSerial": serial,
+                            "band": band,
+                            "timespan": 3600,
+                            "resolution": 3600,
+                        }
+                    }
+                )
+
+                logger.info(f"Band {band} result: {result}")
+
+                if "error" in result:
+                    logger.info(f"Channel utilization error for band {band}: {result}")
+                    continue
+
+                content = result.get("content", "")
+                parsed = _parse_json(content)
+                logger.info(f"Band {band} parsed: {parsed}")
+
+                if not isinstance(parsed, list) or len(parsed) == 0:
+                    continue
+
+                # Calculate average utilization from data points
+                # API returns: utilizationTotal, utilization80211, utilizationNon80211
+                total_util = 0
+                count = 0
+                for entry in parsed:
+                    if isinstance(entry, dict):
+                        # Try different field names the API might use
+                        util = (entry.get('utilizationTotal') or
+                               entry.get('utilization') or
+                               entry.get('utilTotal'))
+                        if util is not None:
+                            total_util += util
+                            count += 1
+
+                if count > 0:
+                    avg_util = total_util / count
+                    utilization_list.append(
+                        ChannelUtilization(band=band, utilization=round(avg_util, 1))
+                    )
+                    logger.info(f"Band {band}GHz: {avg_util:.1f}% utilization")
+                else:
+                    logger.info(f"Band {band}GHz: No utilization data available")
+
+            except Exception:
+                logger.debug(f"Failed to fetch channel utilization for band {band}", exc_info=True)
+                continue
+
+        logger.info(f"Channel utilization for {serial}: {utilization_list}")
+        return utilization_list
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to fetch channel utilization for %s", serial)
+        raise HTTPException(status_code=500, detail="Failed to fetch channel utilization")
 
 
 def _parse_json(content: str | list | dict) -> object | None:

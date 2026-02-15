@@ -11,7 +11,7 @@ from langgraph.types import StreamWriter
 
 from agents.state import AgentState
 from agents.stream_util import safe_writer
-from agents.table_extractor import extract_network_table, extract_device_table, extract_test_table
+from agents.table_extractor import extract_network_table, extract_device_table, extract_test_table, extract_client_table
 from agents.tools import build_langchain_tools
 from config import settings
 from prompts import load_prompt
@@ -102,14 +102,18 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
 
             messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
 
-    # Extract interactive tables when the user is asking for network, device, or test listings
+    # Extract interactive tables when the user is asking for network, device, client, or test listings
     table_data: list[dict] = []
     if _is_network_listing_query(query):
         table_data = extract_network_table(tool_results)
         logger.info("Discovery node: extracted %d network table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
+    elif _is_client_listing_query(query):
+        table_data = extract_client_table(tool_results)
+        logger.info("Discovery node: extracted %d client table_data entries from %d tool_results",
+                     len(table_data), len(tool_results))
     elif _is_device_listing_query(query):
-        table_data = extract_device_table(tool_results)
+        table_data = extract_device_table(tool_results, user_query=query)
         logger.info("Discovery node: extracted %d device table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
     elif _is_test_listing_query(query):
@@ -117,7 +121,7 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
         logger.info("Discovery node: extracted %d test table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
     else:
-        logger.info("Discovery node: skipping table extraction (not a network/device/test listing query)")
+        logger.info("Discovery node: skipping table extraction (not a network/device/client/test listing query)")
 
     # If we have interactive tables, strip duplicate markdown tables from the
     # LLM response so the user doesn't see the same data twice.
@@ -142,12 +146,17 @@ _NETWORK_LISTING_RE = re.compile(
 )
 
 _DEVICE_LISTING_RE = re.compile(
-    r"\b(list|show|get|what\s+(are\s+)?(all\s+)?(the\s+)?)\b.*(device|ap|switch|appliance|camera|sensor)s?\b",
+    r"\b(list|show|get|what\s+(are\s+)?(all\s+)?(the\s+)?)\b.*(device|ap|access\s+point|switch|appliance|firewall|camera|sensor|router|gateway)(s|es)?\b",
+    re.IGNORECASE,
+)
+
+_CLIENT_LISTING_RE = re.compile(
+    r"\b(list|show|get|what\s+(are\s+)?(all\s+)?(the\s+)?)\b.*client(s)?\b",
     re.IGNORECASE,
 )
 
 _DEVICE_TERMS_RE = re.compile(
-    r"\b(device|client|ssid|switch|ap\b|appliance|camera|sensor|firmware|port)",
+    r"\b(device|ssid|switch|ap\b|access\s+point|appliance|firewall|camera|sensor|router|gateway|firmware|port)",
     re.IGNORECASE,
 )
 
@@ -169,6 +178,15 @@ def _is_network_listing_query(query: str) -> bool:
         return False
     # Must mention listing + networks (plural), but NOT mention any device-related terms
     return bool(_NETWORK_LISTING_RE.search(query)) and not bool(_DEVICE_TERMS_RE.search(query))
+
+
+def _is_client_listing_query(query: str) -> bool:
+    """Return True if the user is asking for a list of clients."""
+    # If the query is asking about health/status/summary, don't show client table
+    if _HEALTH_SUMMARY_RE.search(query):
+        return False
+    # Must mention listing + clients
+    return bool(_CLIENT_LISTING_RE.search(query))
 
 
 def _is_device_listing_query(query: str) -> bool:

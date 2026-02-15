@@ -18,7 +18,7 @@ export function NetworkDetailCard({ data }: Props) {
   const closePopover = useCallback(() => setActiveDetail(null), [])
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {/* Notes */}
       {data.notes && (
         <div>
@@ -30,14 +30,14 @@ export function NetworkDetailCard({ data }: Props) {
       {/* Network ID */}
       <div>
         <span className="text-sm font-medium text-gray-600 dark:text-gray-500">Network ID</span>
-        <p className="text-sm text-gray-700 dark:text-gray-400 font-mono mt-1">{data.networkId}</p>
+        <p className="text-sm text-gray-700 dark:text-gray-400 font-mono mt-0.5">{data.networkId}</p>
       </div>
 
       {/* Time Zone */}
       {data.timeZone && (
         <div>
           <span className="text-sm font-medium text-gray-600 dark:text-gray-500">Time Zone</span>
-          <p className="text-sm text-gray-800 dark:text-gray-300 mt-1">{data.timeZone}</p>
+          <p className="text-sm text-gray-800 dark:text-gray-300 mt-0.5">{data.timeZone}</p>
         </div>
       )}
 
@@ -45,11 +45,11 @@ export function NetworkDetailCard({ data }: Props) {
       {data.tags && data.tags.length > 0 && (
         <div>
           <span className="text-sm font-medium text-gray-600 dark:text-gray-500">Tags</span>
-          <div className="flex flex-wrap gap-2 mt-1">
+          <div className="flex flex-wrap gap-1.5 mt-1">
             {data.tags.map((tag) => (
               <span
                 key={tag}
-                className="px-2.5 py-1 text-sm bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded border border-blue-200 dark:border-blue-500/20"
+                className="px-2 py-0.5 text-xs bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded border border-blue-200 dark:border-blue-500/20"
               >
                 {tag}
               </span>
@@ -62,11 +62,11 @@ export function NetworkDetailCard({ data }: Props) {
       {data.productTypes && data.productTypes.length > 0 && (
         <div>
           <span className="text-sm font-medium text-gray-600 dark:text-gray-500">Product Types</span>
-          <div className="flex flex-wrap gap-2 mt-1">
+          <div className="flex flex-wrap gap-1.5 mt-1">
             {data.productTypes.map((pt) => (
               <span
                 key={pt}
-                className="px-2.5 py-1 text-sm bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded border border-emerald-200 dark:border-emerald-500/20"
+                className="px-2 py-0.5 text-xs bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded border border-emerald-200 dark:border-emerald-500/20"
               >
                 {pt}
               </span>
@@ -76,7 +76,7 @@ export function NetworkDetailCard({ data }: Props) {
       )}
 
       {/* Divider */}
-      <div className="border-t border-gray-200 dark:border-gray-800 my-3" />
+      <div className="border-t border-gray-200 dark:border-gray-800 my-2.5" />
 
       {/* Live Stats */}
       <div>

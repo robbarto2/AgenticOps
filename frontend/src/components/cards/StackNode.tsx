@@ -1,4 +1,5 @@
-import { memo } from 'react'
+import { memo, useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import type { NodeProps } from '@xyflow/react'
 import { useCanvasStore } from '../../store/canvasSlice'
 import type { CardStack } from '../../store/canvasSlice'
@@ -6,6 +7,18 @@ import type { CardCategory } from '../../utils/cardCategories'
 
 function CategoryIcon({ category, color }: { category: CardCategory; color: string }) {
   switch (category) {
+    case 'switch':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
+        </svg>
+      )
+    case 'access_point':
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
+        </svg>
+      )
     case 'network':
       return (
         <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5">
@@ -57,15 +70,91 @@ function CategoryIcon({ category, color }: { category: CardCategory; color: stri
   }
 }
 
+interface StackPreviewProps {
+  stack: CardStack
+  anchorEl: HTMLElement
+}
+
+function StackPreview({ stack, anchorEl }: StackPreviewProps) {
+  const cards = useCanvasStore((s) => s.cards)
+  const stackCards = cards.filter((c) => stack.cardIds.includes(c.id))
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+
+  useEffect(() => {
+    const rect = anchorEl.getBoundingClientRect()
+    setPosition({
+      top: rect.bottom + 8,
+      left: rect.left,
+    })
+  }, [anchorEl])
+
+  return createPortal(
+    <div
+      className="fixed z-[60] bg-white dark:bg-gray-900 border-2 border-gray-300 dark:border-gray-700 rounded-lg shadow-2xl max-w-md"
+      style={{ top: position.top, left: position.left }}
+    >
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800">
+        <div className="flex items-center gap-2">
+          <CategoryIcon category={stack.category} color={stack.color} />
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{stack.label}</h3>
+        </div>
+      </div>
+      <div className="max-h-80 overflow-y-auto">
+        {stackCards.map((card) => (
+          <div
+            key={card.id}
+            className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+          >
+            <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+              {card.title}
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              {card.type.replace(/_/g, ' ')}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 function StackNodeInner({ data }: NodeProps) {
   const stack = data as unknown as CardStack
   const toggleStack = useCanvasStore((s) => s.toggleStack)
   const count = stack.cardIds.length
+  const [showPreview, setShowPreview] = useState(false)
+  const nodeRef = useRef<HTMLDivElement>(null)
+  const hoverTimeoutRef = useRef<NodeJS.Timeout>()
+
+  const handleMouseEnter = () => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setShowPreview(true)
+    }, 500) // 500ms delay before showing preview
+  }
+
+  const handleMouseLeave = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current)
+    }
+    setShowPreview(false)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current)
+      }
+    }
+  }, [])
 
   return (
     <div
+      ref={nodeRef}
       className="relative cursor-pointer select-none"
       onClick={() => toggleStack(stack.id)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       {/* Shadow layers for stacked effect */}
       <div
@@ -104,6 +193,11 @@ function StackNodeInner({ data }: NodeProps) {
           </span>
         </div>
       </div>
+
+      {/* Hover preview */}
+      {showPreview && nodeRef.current && (
+        <StackPreview stack={stack} anchorEl={nodeRef.current} />
+      )}
     </div>
   )
 }

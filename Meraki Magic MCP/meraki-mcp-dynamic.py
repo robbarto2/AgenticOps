@@ -526,7 +526,7 @@ async def getOrganizationDevices(
     if organizationId:
         params['organizationId'] = organizationId
     if productTypes:
-        params['productTypes[]'] = productTypes
+        params['productTypes'] = productTypes
     return await call_meraki_method("organizations", "getOrganizationDevices", **params)
 
 @mcp.tool()

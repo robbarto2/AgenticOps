@@ -1,12 +1,14 @@
 import type { AnyCard } from '../types/card'
 import { detectDeviceType } from './formatters'
 
-export type CardCategory = 'network' | 'org' | 'device' | 'test' | 'alert' | 'chart' | 'table' | 'report'
+export type CardCategory = 'network' | 'org' | 'switch' | 'access_point' | 'device' | 'test' | 'alert' | 'chart' | 'table' | 'report'
 
 const CATEGORY_META: Record<CardCategory, { label: string; color: string }> = {
   network: { label: 'Networks', color: '#10b981' },
   org: { label: 'Organization', color: '#8b5cf6' },
-  device: { label: 'Devices', color: '#3b82f6' },
+  switch: { label: 'Switches', color: '#3b82f6' },
+  access_point: { label: 'Wireless Access Points', color: '#22c55e' },
+  device: { label: 'Devices', color: '#6366f1' },
   test: { label: 'Tests', color: '#06b6d4' },
   alert: { label: 'Alerts', color: '#f59e0b' },
   chart: { label: 'Charts', color: '#14b8a6' },
@@ -18,11 +20,14 @@ export function getCardCategory(card: AnyCard): CardCategory {
   switch (card.type) {
     case 'network_detail':
     case 'network_health':
+    case 'topology':
       return 'network'
     case 'org_summary':
       return 'org'
     case 'switch_detail':
-      return 'device'
+      return 'switch'
+    case 'access_point_detail':
+      return 'access_point'
     case 'test_detail':
       return 'test'
     case 'alert_summary':
