@@ -54,15 +54,16 @@ _AFFIRMATIVE_RE = re.compile(
 _FAST_ROUTES: list[tuple[re.Pattern, str]] = [
     # Testing agent — must match before troubleshooting (both mention "connectivity")
     (re.compile(r"\b(run\s+(a\s+)?test|instant\s+test|page\s+load\s+test|dns\s+test|http\s+test|test\s+connectivity|deploy\s+template|rerun\s+test)\b", re.IGNORECASE), "testing"),
+    # Troubleshooting agent — must come early to catch explicit troubleshooting requests
+    (re.compile(r"\b(troubleshoot|diagnose|debug|investigate|trace|traceroute|path\s+visuali[zs]ation)\b", re.IGNORECASE), "troubleshooting"),
     # Remediation agent — write/change operations
     (re.compile(r"\b(fix|change|update|set|modify|disable|enable|configure|remediate|close|block|add\s+(a\s+)?rule)\b.*\b(port|ssid|vlan|firewall|rule|network|config)\b", re.IGNORECASE), "remediation"),
     (re.compile(r"\b(port|ssid|vlan|firewall|rule)\b.*\b(fix|change|update|set|modify|disable|enable|configure|remediate|close|block)\b", re.IGNORECASE), "remediation"),
-    # Discovery agent — listing/inventory queries (must come before troubleshooting)
+    # Discovery agent — listing/inventory queries
     (re.compile(r"\b(list|show|get|what|display).*(network|site|device|ap|access\s+point|switch|appliance|camera|sensor|client|ssid)s?\b", re.IGNORECASE), "discovery"),
     (re.compile(r"\b(inventory|topology|health|overview|status|organization)\b", re.IGNORECASE), "discovery"),
-    # Troubleshooting agent — only match when there are actual problem indicators
+    # Troubleshooting agent — problem indicators (checked after explicit troubleshooting keywords)
     (re.compile(r"\b(slow|issue|problem|not\s+working|can'?t|won'?t|fail|error|down|offline|disconnect|latency|packet.?loss|degraded|poor)\b", re.IGNORECASE), "troubleshooting"),
-    (re.compile(r"\b(troubleshoot|diagnose|debug|investigate|trace|traceroute|path\s+visuali[zs]ation)\b", re.IGNORECASE), "troubleshooting"),
     # Security and compliance
     (re.compile(r"\b(firewall|security|threat|acl|ids|ips|malware|vulnerab)\b", re.IGNORECASE), "security"),
     (re.compile(r"\b(compliance|audit|policy|best.?practice|config.*(check|review|audit))\b", re.IGNORECASE), "compliance"),

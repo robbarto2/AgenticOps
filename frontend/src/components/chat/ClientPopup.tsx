@@ -50,7 +50,7 @@ export function ClientPopup({ metadata, clientName, onClose }: Props) {
       metadata.networkName && `Network: ${metadata.networkName}`,
     ].filter(Boolean).join(', ')
 
-    const prompt = `Troubleshoot client "${clientName}" (${details}). Check client performance metrics (connection quality, latency, throughput), connectivity status, recent issues, and search for any ThousandEyes test data related to this client's IP address or network. Provide a comprehensive diagnostic report with recommendations.`
+    const prompt = `Diagnose connectivity and performance issues for client "${clientName}" with ${details}. Troubleshoot: connection quality (RSSI, signal strength), latency, throughput, packet loss, authentication issues, DHCP/DNS problems. Find recent network events affecting this client. If ThousandEyes endpoint agent data exists for this client's IP, include path quality and ISP metrics. Provide root cause analysis and remediation steps.`
 
     addPrompt(prompt)
     onClose()
