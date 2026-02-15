@@ -14,6 +14,8 @@ class Session:
     messages: list[dict] = field(default_factory=list)
     cards: list[dict] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    last_tool_results: list[dict] = field(default_factory=list)
+    last_assistant_text: str = ""
 
     def add_message(self, role: str, content: str) -> None:
         self.messages.append({

@@ -24,6 +24,7 @@ _CARD_PATTERNS = re.compile(
     r"|display\s+(as|in|on)\s+(a\s+)?(card|chart|table|canvas)"
     r"|put\s+(this|that|it)\s+(in|on|as)\s+(a\s+)?(card|canvas)"
     r"|add\s+(to|on)\s+(the\s+)?canvas"
+    r"|org(anizational)?\s+summary|org(anization)?\s+overview|executive\s+summary"
     r")\b",
     re.IGNORECASE,
 )
@@ -41,11 +42,25 @@ _CARD_FOLLOWUP_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# Short affirmative responses (used when the previous assistant message offered cards)
+_AFFIRMATIVE_RE = re.compile(
+    r"^\s*(yes|yeah|yep|yup|sure|ok|okay|please|go\s*ahead|do\s*it|go\s*for\s*it"
+    r"|absolutely|definitely|that\s*would\s*be\s*great|sounds\s*good|please\s*do"
+    r"|yes\s*please|sure\s*thing|of\s*course)\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
 # Fast-path regex patterns to skip the LLM call entirely for obvious queries
 _FAST_ROUTES: list[tuple[re.Pattern, str]] = [
+    # Testing agent — must match before troubleshooting (both mention "connectivity")
+    (re.compile(r"\b(run\s+(a\s+)?test|instant\s+test|page\s+load\s+test|dns\s+test|http\s+test|test\s+connectivity|deploy\s+template|rerun\s+test)\b", re.IGNORECASE), "testing"),
+    # Remediation agent — write/change operations
+    (re.compile(r"\b(fix|change|update|set|modify|disable|enable|configure|remediate|close|block|add\s+(a\s+)?rule)\b.*\b(port|ssid|vlan|firewall|rule|network|config)\b", re.IGNORECASE), "remediation"),
+    (re.compile(r"\b(port|ssid|vlan|firewall|rule)\b.*\b(fix|change|update|set|modify|disable|enable|configure|remediate|close|block)\b", re.IGNORECASE), "remediation"),
+    # Existing routes
     (re.compile(r"\b(list|show|get|what).*(network|site)s?\b", re.IGNORECASE), "discovery"),
     (re.compile(r"\b(inventory|device|topology|health|overview|status|organization)\b", re.IGNORECASE), "discovery"),
-    (re.compile(r"\b(wifi|wireless|latency|slow|disconnect|packet.?loss|performance|wan|uplink|connectivity)\b", re.IGNORECASE), "troubleshooting"),
+    (re.compile(r"\b(wifi|wireless|latency|slow|disconnect|packet.?loss|performance|wan|uplink|connectivity|path|trace|traceroute|hop|visuali[zs]ation)\b", re.IGNORECASE), "troubleshooting"),
     (re.compile(r"\b(firewall|security|threat|acl|ids|ips|malware|vulnerab)\b", re.IGNORECASE), "security"),
     (re.compile(r"\b(compliance|audit|policy|best.?practice|config.*(check|review|audit))\b", re.IGNORECASE), "compliance"),
 ]
@@ -64,9 +79,15 @@ def _wants_cards(query: str) -> bool:
     return bool(_CARD_PATTERNS.search(query))
 
 
-def _is_card_followup(query: str) -> bool:
+def _is_card_followup(query: str, has_previous_results: bool = False) -> bool:
     """Check if this is a follow-up request to show previous results as cards."""
-    return bool(_CARD_FOLLOWUP_PATTERNS.search(query))
+    if _CARD_FOLLOWUP_PATTERNS.search(query):
+        return True
+    # Short affirmatives like "yes please" are card follow-ups only when there
+    # are previous tool results (meaning the assistant just offered cards).
+    if has_previous_results and _AFFIRMATIVE_RE.match(query):
+        return True
+    return False
 
 
 async def orchestrator_node(state: AgentState) -> dict:
@@ -74,7 +95,8 @@ async def orchestrator_node(state: AgentState) -> dict:
     query = state["user_query"]
 
     # Check if this is a follow-up request to show previous results as cards
-    if _is_card_followup(query):
+    has_previous = bool(state.get("tool_results"))
+    if _is_card_followup(query, has_previous_results=has_previous):
         logger.info("Orchestrator detected card follow-up request: %s", query[:100])
         return {
             "active_agent": "canvas",
@@ -95,7 +117,7 @@ async def orchestrator_node(state: AgentState) -> dict:
         llm = ChatAnthropic(
             model=settings.orchestrator_model_name,
             api_key=settings.anthropic_api_key,
-            max_tokens=50,
+            max_tokens=100,
         )
 
         messages = [
@@ -104,13 +126,30 @@ async def orchestrator_node(state: AgentState) -> dict:
         ]
 
         response = await llm.ainvoke(messages)
-        agent_name = response.content.strip().lower()
+        raw = response.content.strip().lower()
 
-        # Validate the agent name
-        valid_agents = {"troubleshooting", "compliance", "security", "discovery"}
-        if agent_name not in valid_agents:
-            logger.warning("Orchestrator returned invalid agent '%s', defaulting to discovery", agent_name)
-            agent_name = "discovery"
+        # Parse multi-agent plan (comma-separated) or single agent
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        valid_agents = {"troubleshooting", "compliance", "security", "discovery", "testing", "remediation"}
+        parts = [p for p in parts if p in valid_agents]
+
+        if not parts:
+            logger.warning("Orchestrator returned invalid response '%s', defaulting to discovery", raw)
+            parts = ["discovery"]
+
+        agent_name = parts[0]
+
+        # If multi-agent plan detected, store it
+        if len(parts) > 1:
+            agent_plan = parts[:3]  # Cap at 3 agents max
+            logger.info("Orchestrator planned multi-agent sequence: %s", agent_plan)
+            return {
+                "active_agent": agent_plan[0],
+                "generate_cards": generate_cards,
+                "agent_plan": agent_plan,
+                "plan_step": 0,
+                "agent_events": [{"type": "agent_start", "agent": agent_plan[0]}],
+            }
 
     logger.info(
         "Orchestrator routed query to '%s' (cards=%s): %s",
@@ -120,6 +159,8 @@ async def orchestrator_node(state: AgentState) -> dict:
     return {
         "active_agent": agent_name,
         "generate_cards": generate_cards,
+        "agent_plan": [agent_name],
+        "plan_step": 0,
         "agent_events": [{"type": "agent_start", "agent": agent_name}],
     }
 

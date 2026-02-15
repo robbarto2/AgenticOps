@@ -1,19 +1,62 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useChatStore } from '../../store/chatSlice'
+import type { ChatMode } from '../../store/chatSlice'
 import { useChat } from '../../hooks/useChat'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 import { AgentIndicator } from './AgentIndicator'
 import { ConfirmationModal } from './ConfirmationModal'
 
-export function ChatPanel() {
+const CHAT_MODES: { mode: ChatMode; label: string; description: string; icon: JSX.Element }[] = [
+  {
+    mode: 'docked',
+    label: 'Docked',
+    description: 'Side-by-side with canvas',
+    icon: (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <line x1="10" y1="3" x2="10" y2="21" />
+      </svg>
+    ),
+  },
+  {
+    mode: 'floating',
+    label: 'Floating Window',
+    description: 'Draggable window over canvas',
+    icon: (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="2" y="2" width="20" height="20" rx="2" />
+        <rect x="8" y="8" width="14" height="14" rx="2" fill="currentColor" fillOpacity="0.15" />
+      </svg>
+    ),
+  },
+  {
+    mode: 'fullscreen',
+    label: 'Full Screen',
+    description: 'Chat fills entire screen',
+    icon: (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+      </svg>
+    ),
+  },
+]
+
+interface ChatPanelProps {
+  onHeaderMouseDown?: (e: React.MouseEvent) => void
+}
+
+export function ChatPanel({ onHeaderMouseDown }: ChatPanelProps = {}) {
   const messages = useChatStore((s) => s.messages)
   const pendingPrompt = useChatStore((s) => s.pendingPrompt)
   const setPendingPrompt = useChatStore((s) => s.setPendingPrompt)
   const clearMessages = useChatStore((s) => s.clearMessages)
+  const chatMode = useChatStore((s) => s.chatMode)
+  const setChatMode = useChatStore((s) => s.setChatMode)
   const { sendMessage, stopProcessing } = useChat()
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [showModePicker, setShowModePicker] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -30,20 +73,70 @@ export function ChatPanel() {
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#0c0f18] transition-colors">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-[#1e2636] flex items-center justify-between">
+      <div
+        className={`px-4 py-3 border-b border-gray-200 dark:border-[#1e2636] flex items-center justify-between${onHeaderMouseDown ? ' cursor-move' : ''}`}
+        onMouseDown={onHeaderMouseDown}
+      >
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-300">Chat</h2>
-        {messages.length > 0 && (
+        <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}>
+          {/* Mode Picker */}
+          <div className="relative">
+            <button
+              onClick={() => setShowModePicker((v) => !v)}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#141820] rounded transition-colors cursor-pointer"
+              title="Change chat layout"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="10" y1="3" x2="10" y2="21" />
+              </svg>
+            </button>
+
+            {showModePicker && (
+              <>
+                {/* Backdrop to close on outside click */}
+                <div className="fixed inset-0 z-40" onClick={() => setShowModePicker(false)} />
+                <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2636] rounded-lg shadow-xl overflow-hidden">
+                  {CHAT_MODES.map(({ mode, label, description, icon }) => (
+                    <button
+                      key={mode}
+                      onClick={() => {
+                        setChatMode(mode)
+                        setShowModePicker(false)
+                      }}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors cursor-pointer ${
+                        chatMode === mode
+                          ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#141820]'
+                      }`}
+                    >
+                      <span className={chatMode === mode ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500'}>{icon}</span>
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium">{label}</div>
+                        <div className="text-[10px] text-gray-500 dark:text-gray-500">{description}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* New Chat Button */}
           <button
-            onClick={() => setShowClearConfirm(true)}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#141820] rounded transition-colors cursor-pointer"
-            title="Clear chat history"
+            onClick={() => messages.length > 0 && setShowClearConfirm(true)}
+            className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+              messages.length > 0
+                ? 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#141820] cursor-pointer'
+                : 'text-gray-300 dark:text-gray-600 cursor-default'
+            }`}
+            title="New chat"
           >
-            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
             </svg>
-            Clear
           </button>
-        )}
+        </div>
       </div>
 
       {/* Messages */}

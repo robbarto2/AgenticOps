@@ -6,8 +6,10 @@ import logging
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.types import StreamWriter
 
 from agents.state import AgentState
+from agents.stream_util import safe_writer
 from agents.tools import build_langchain_tools
 from config import settings
 from prompts import load_prompt
@@ -18,8 +20,9 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT_TEMPLATE = load_prompt("troubleshooting")
 
 
-async def troubleshooting_node(state: AgentState) -> dict:
+async def troubleshooting_node(state: AgentState, writer: StreamWriter) -> dict:
     """Execute troubleshooting analysis for the user query."""
+    emit = safe_writer(writer)
     query = state["user_query"]
     skills_text = load_skills_for_agent("troubleshooting")
 
@@ -39,11 +42,10 @@ async def troubleshooting_node(state: AgentState) -> dict:
     messages = [
         SystemMessage(content=system_prompt),
         *state["messages"],
-        HumanMessage(content=query),
     ]
 
     agent_events = list(state.get("agent_events", []))
-    tool_results = list(state.get("tool_results", []))
+    tool_results: list[dict] = []
 
     # Agentic loop: let the LLM call tools iteratively
     max_iterations = 10
@@ -59,10 +61,15 @@ async def troubleshooting_node(state: AgentState) -> dict:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]
 
-            agent_events.append({
+            source = "meraki"
+            if tool_name.startswith("te_") or "thousandeyes" in tool_name.lower():
+                source = "thousandeyes"
+
+            # Stream tool_call event in real-time via StreamWriter
+            emit({
                 "type": "tool_call",
                 "tool": tool_name,
-                "source": "meraki",
+                "source": source,
                 "status": "running",
             })
 
@@ -79,10 +86,11 @@ async def troubleshooting_node(state: AgentState) -> dict:
                 "result": result,
             })
 
-            agent_events.append({
+            # Stream tool completion in real-time
+            emit({
                 "type": "tool_call",
                 "tool": tool_name,
-                "source": "meraki",
+                "source": source,
                 "status": "complete",
             })
 
@@ -90,11 +98,12 @@ async def troubleshooting_node(state: AgentState) -> dict:
             from langchain_core.messages import ToolMessage
             messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
 
-    # Extract final text response
-    final_text = response.content if isinstance(response.content, str) else str(response.content)
+    # Advance plan step for multi-agent routing
+    plan_step = state.get("plan_step", 0)
 
     return {
-        "messages": [HumanMessage(content=query), response],
+        "messages": [response],
         "tool_results": tool_results,
         "agent_events": agent_events,
+        "plan_step": plan_step + 1,
     }

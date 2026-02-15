@@ -511,11 +511,22 @@ async def getOrganizationNetworks(organizationId: str = None) -> str:
     return await call_meraki_method("organizations", "getOrganizationNetworks", **params)
 
 @mcp.tool()
-async def getOrganizationDevices(organizationId: str = None) -> str:
-    """Get organization devices"""
+async def getOrganizationDevices(
+    organizationId: str = None,
+    productTypes: list[str] = None
+) -> str:
+    """Get organization devices
+
+    Args:
+        organizationId: Organization ID (optional, uses active profile's org if not specified)
+        productTypes: Filter devices by product type (optional). Valid types: wireless, appliance, switch,
+                     systemsManager, camera, cellularGateway, sensor, wirelessController, campusGateway, secureConnect
+    """
     params = {}
     if organizationId:
         params['organizationId'] = organizationId
+    if productTypes:
+        params['productTypes[]'] = productTypes
     return await call_meraki_method("organizations", "getOrganizationDevices", **params)
 
 @mcp.tool()

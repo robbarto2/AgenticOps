@@ -42,6 +42,41 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   addCard: (card) =>
     set((state) => {
+      // Helper to get a unique key for a card based on its type and data
+      const getCardKey = (c: AnyCard): string | null => {
+        switch (c.type) {
+          case 'switch_detail':
+            return `switch:${c.data.serial}`
+          case 'network_detail':
+            return `network:${c.data.networkId}`
+          case 'test_detail':
+            return `test:${c.data.testId}`
+          case 'org_summary':
+            return 'org_summary' // Only one org summary
+          case 'data_table':
+          case 'bar_chart':
+          case 'line_chart':
+          case 'alert_summary':
+          case 'text_report':
+          case 'network_health':
+            // For generic cards, use title as key
+            return `${c.type}:${c.title}`
+          default:
+            return null // Unknown type, allow duplicates
+        }
+      }
+
+      // Check if this card already exists
+      const newCardKey = getCardKey(card)
+      if (newCardKey) {
+        const duplicate = state.cards.find(c => getCardKey(c) === newCardKey)
+        if (duplicate) {
+          console.log(`Card already exists on canvas: ${card.title}`)
+          // Don't add duplicate - just return current state
+          return state
+        }
+      }
+
       const position = getNextCardPosition(state.nodes.length)
       const newNode: Node = {
         id: card.id,
@@ -89,6 +124,51 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const cardNodes = state.nodes.filter((n) => n.type === 'cardNode')
     const cardMap = new Map(state.cards.map((c) => [c.id, c]))
 
+    // Helper to generate descriptive label from cards
+    const getStackLabel = (category: string, cardIds: string[]): string => {
+      const cards = cardIds.map(id => cardMap.get(id)).filter(Boolean) as AnyCard[]
+      if (cards.length === 0) return getCategoryLabel(category as CardCategory)
+
+      // For devices (switch_detail cards), extract model info
+      if (category === 'device') {
+        const models = new Map<string, number>()
+        for (const card of cards) {
+          if (card.type === 'switch_detail') {
+            const model = card.data.model || 'Unknown'
+            models.set(model, (models.get(model) || 0) + 1)
+          }
+        }
+
+        // If all same model, use specific label
+        if (models.size === 1) {
+          const [model, count] = Array.from(models.entries())[0]
+          return `${model} Switches`
+        }
+        // If mixed models, show count
+        if (models.size > 1) {
+          return `Switches (${cards.length})`
+        }
+      }
+
+      // For tests, check if all same type
+      if (category === 'test') {
+        const types = new Set(cards.map(c => c.type === 'test_detail' ? c.data.testType : ''))
+        if (types.size === 1 && types.values().next().value) {
+          const type = types.values().next().value
+          return `${type} Tests`
+        }
+        return `Tests (${cards.length})`
+      }
+
+      // For networks, use generic label
+      if (category === 'network') {
+        return `Networks (${cards.length})`
+      }
+
+      // Default: category label
+      return getCategoryLabel(category as CardCategory)
+    }
+
     // Group card node IDs by category
     const groups: Record<string, string[]> = {}
     for (const node of cardNodes) {
@@ -121,7 +201,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       newStacks[stackId] = {
         id: stackId,
         category: category as CardCategory,
-        label: getCategoryLabel(category as CardCategory),
+        label: getStackLabel(category, cardIds),
         cardIds,
         expanded: false,
         position,

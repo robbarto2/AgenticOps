@@ -3,11 +3,11 @@
  * Cards are laid out in a grid pattern.
  */
 
-const CARD_WIDTH = 440
-const CARD_HEIGHT = 350
-const GAP_X = 40
-const GAP_Y = 40
-const COLS = 3
+const CARD_WIDTH = 700
+const CARD_HEIGHT = 500
+const GAP_X = 50
+const GAP_Y = 50
+const COLS = 2
 const START_X = 50
 const START_Y = 50
 

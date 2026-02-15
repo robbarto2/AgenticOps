@@ -65,5 +65,11 @@ export function useWebSocket(onMessage: (event: WebSocketInEvent) => void) {
     }
   }, [])
 
-  return { sendMessage, sendStop }
+  const sendRaw = useCallback((data: Record<string, unknown>) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(data))
+    }
+  }, [])
+
+  return { sendMessage, sendStop, sendRaw }
 }

@@ -30,17 +30,36 @@ async def chat_websocket(websocket: WebSocket) -> None:
         session = session_store.get_or_create(sid)
         session.add_message("user", content)
 
-        from langchain_core.messages import HumanMessage
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        # Build messages from recent session history (limit context to avoid
+        # bloating specialist LLM calls with full prior responses).
+        # Keep last exchange (1 assistant + current user) for follow-up context.
+        MAX_HISTORY_MESSAGES = 3  # prev assistant + prev user + current user
+        recent = session.messages[-MAX_HISTORY_MESSAGES:]
+        msg_objects = []
+        for m in recent:
+            if m["role"] == "user":
+                msg_objects.append(HumanMessage(content=m["content"]))
+            elif m["role"] == "assistant" and m["content"] != "Response delivered.":
+                # Truncate long assistant responses to keep context manageable
+                assistant_text = m["content"]
+                if len(assistant_text) > 1500:
+                    assistant_text = assistant_text[:1500] + "\n\n[...truncated for context]"
+                msg_objects.append(AIMessage(content=assistant_text))
 
         initial_state: AgentState = {
-            "messages": [HumanMessage(content=m["content"]) for m in session.messages if m["role"] == "user"],
+            "messages": msg_objects,
             "user_query": content,
             "active_agent": "",
             "generate_cards": False,
-            "tool_results": [],
+            "tool_results": list(session.last_tool_results),
             "cards": [],
             "agent_events": [],
             "table_data": [],
+            "agent_plan": [],
+            "plan_step": 0,
+            "pending_confirmation": {},
         }
 
         try:
@@ -48,27 +67,54 @@ async def chat_websocket(websocket: WebSocket) -> None:
             await _send_event(websocket, "agent_start", {"type": "agent_start", "agent": "orchestrator"})
 
             last_events_sent = 0
+            accumulated_tool_results: list[dict] = []
+            accumulated_assistant_text = ""
 
             async for event in agent_graph.astream(
                 initial_state,
-                stream_mode="updates",
+                stream_mode=["updates", "custom"],
             ):
-                for node_name, state_update in event.items():
+                mode, payload = event
+
+                # "custom" events: real-time tool_call events from StreamWriter
+                if mode == "custom":
+                    if isinstance(payload, dict) and "type" in payload:
+                        await _send_event(websocket, payload["type"], payload)
+                    continue
+
+                # "updates" events: node completion with state updates
+                for node_name, state_update in payload.items():
                     logger.info("Stream update from node '%s', keys: %s", node_name, list(state_update.keys()))
 
-                    # Send any new agent events
+                    # Send agent events (orchestrator's agent_start)
                     agent_events = state_update.get("agent_events", [])
                     for evt in agent_events[last_events_sent:]:
                         await _send_event(websocket, evt["type"], evt)
                     last_events_sent = len(agent_events)
 
+                    # Send agent_plan if available (from orchestrator)
+                    agent_plan = state_update.get("agent_plan")
+                    if agent_plan and len(agent_plan) > 1:
+                        await _send_event(websocket, "agent_plan", {
+                            "plan": agent_plan,
+                            "step": state_update.get("plan_step", 0),
+                        })
+
+                    # Track tool results for session persistence
+                    new_tool_results = state_update.get("tool_results", [])
+                    if new_tool_results:
+                        accumulated_tool_results = new_tool_results
+
                     # If we have messages, extract the AI response text
                     new_messages = state_update.get("messages", [])
-                    for msg in new_messages:
+                    for i, msg in enumerate(new_messages):
                         if hasattr(msg, "type") and msg.type == "ai" and msg.content:
-                            text = msg.content if isinstance(msg.content, str) else str(msg.content)
-                            if text and not msg.tool_calls:
+                            text = _extract_text(msg.content)
+                            # Send text if no tool calls OR if it's the last message (final response)
+                            is_last_message = (i == len(new_messages) - 1)
+                            if text and (not msg.tool_calls or is_last_message):
                                 await _send_event(websocket, "text", text)
+                                accumulated_assistant_text = text
 
                     # Send table data for interactive hover popups
                     tables = state_update.get("table_data", [])
@@ -82,7 +128,14 @@ async def chat_websocket(websocket: WebSocket) -> None:
                     for card in cards:
                         await _send_event(websocket, "card", card)
 
-            session.add_message("assistant", "Response delivered.")
+            # Persist tool results and assistant text for follow-up queries
+            if accumulated_tool_results:
+                session.last_tool_results = accumulated_tool_results
+            if accumulated_assistant_text:
+                session.last_assistant_text = accumulated_assistant_text
+                session.add_message("assistant", accumulated_assistant_text)
+            else:
+                session.add_message("assistant", "Response delivered.")
             await _send_event(websocket, "done", None)
 
         except asyncio.CancelledError:
@@ -111,6 +164,30 @@ async def chat_websocket(websocket: WebSocket) -> None:
                     logger.info("Stop requested, cancelling processing task")
                 continue
 
+            # Handle confirmation responses for remediation agent
+            if msg_type == "confirmation_response":
+                approved = message.get("approved", False)
+                sid = message.get("session_id", "default")
+                logger.info("Confirmation response: approved=%s", approved)
+                if approved:
+                    # Re-run the remediation agent with approval in state
+                    session = session_store.get_or_create(sid)
+                    session.add_message("user", "Approved: proceed with the change.")
+                    # Cancel any existing processing before starting confirmation execution
+                    if processing_task and not processing_task.done():
+                        processing_task.cancel()
+                        try:
+                            await processing_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                    processing_task = asyncio.create_task(
+                        process_query("Approved: proceed with the change.", sid)
+                    )
+                else:
+                    await _send_event(websocket, "text", "Change cancelled by user.")
+                    await _send_event(websocket, "done", None)
+                continue
+
             if msg_type != "user_message":
                 await _send_event(websocket, "error", {"message": f"Unknown message type: {msg_type}"})
                 continue
@@ -135,6 +212,26 @@ async def chat_websocket(websocket: WebSocket) -> None:
         logger.info("WebSocket disconnected: session=%s", session_id)
         if processing_task and not processing_task.done():
             processing_task.cancel()
+
+
+def _extract_text(content: str | list) -> str:
+    """Extract only text from an AI message content field.
+
+    When Anthropic returns tool_use alongside text, msg.content is a list of
+    content blocks like [{"type": "text", "text": "..."}, {"type": "tool_use", ...}].
+    We only want the text portions.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif hasattr(block, "text"):
+                parts.append(block.text)
+        return "\n".join(parts).strip()
+    return str(content)
 
 
 async def _send_event(websocket: WebSocket, event_type: str, data: dict | str | None) -> None:

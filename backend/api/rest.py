@@ -7,7 +7,15 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from api.models import EntityStatsResponse, HealthResponse, SkillInfo, SkillsResponse
+from api.models import (
+    ClientDetail,
+    DeviceDetail,
+    EntityStatsResponse,
+    HealthResponse,
+    SkillInfo,
+    SkillsResponse,
+    SsidDetail,
+)
 from mcp_client.manager import mcp_manager
 from skills.loader import list_skills
 
@@ -95,6 +103,99 @@ async def entity_stats(entity_type: str, entity_id: str) -> EntityStatsResponse:
         clientCount=client_count,
         ssidCount=ssid_count,
     )
+
+
+@router.get("/entity/network/{network_id}/devices", response_model=list[DeviceDetail])
+async def network_devices(network_id: str) -> list[DeviceDetail]:
+    """Fetch devices for a network."""
+    if not mcp_manager.meraki_connected:
+        raise HTTPException(status_code=503, detail="Meraki MCP not connected")
+
+    try:
+        result = await mcp_manager.call_tool("getNetworkDevices", {"networkId": network_id})
+        if "error" in result:
+            raise HTTPException(status_code=502, detail=result["error"])
+        parsed = _parse_json(result.get("content", ""))
+        if not isinstance(parsed, list):
+            return []
+        return [
+            DeviceDetail(
+                name=d.get("name") or d.get("serial", ""),
+                model=d.get("model", ""),
+                serial=d.get("serial", ""),
+                status=d.get("status", "unknown"),
+            )
+            for d in parsed
+            if isinstance(d, dict)
+        ]
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to fetch devices for %s", network_id)
+        raise HTTPException(status_code=500, detail="Failed to fetch devices")
+
+
+@router.get("/entity/network/{network_id}/clients", response_model=list[ClientDetail])
+async def network_clients(network_id: str) -> list[ClientDetail]:
+    """Fetch clients for a network (last 24h)."""
+    if not mcp_manager.meraki_connected:
+        raise HTTPException(status_code=503, detail="Meraki MCP not connected")
+
+    try:
+        result = await mcp_manager.call_tool(
+            "getNetworkClients", {"networkId": network_id, "timespan": "86400"}
+        )
+        if "error" in result:
+            raise HTTPException(status_code=502, detail=result["error"])
+        parsed = _parse_json(result.get("content", ""))
+        if not isinstance(parsed, list):
+            return []
+        return [
+            ClientDetail(
+                description=c.get("description") or c.get("mac", ""),
+                mac=c.get("mac", ""),
+                ip=c.get("ip", ""),
+                vlan=str(c.get("vlan", "")),
+            )
+            for c in parsed
+            if isinstance(c, dict)
+        ]
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to fetch clients for %s", network_id)
+        raise HTTPException(status_code=500, detail="Failed to fetch clients")
+
+
+@router.get("/entity/network/{network_id}/ssids", response_model=list[SsidDetail])
+async def network_ssids(network_id: str) -> list[SsidDetail]:
+    """Fetch wireless SSIDs for a network."""
+    if not mcp_manager.meraki_connected:
+        raise HTTPException(status_code=503, detail="Meraki MCP not connected")
+
+    try:
+        result = await mcp_manager.call_tool(
+            "getNetworkWirelessSsids", {"networkId": network_id}
+        )
+        if "error" in result:
+            raise HTTPException(status_code=502, detail=result["error"])
+        parsed = _parse_json(result.get("content", ""))
+        if not isinstance(parsed, list):
+            return []
+        return [
+            SsidDetail(
+                name=s.get("name", ""),
+                authMode=s.get("authMode", ""),
+                enabled=bool(s.get("enabled", False)),
+            )
+            for s in parsed
+            if isinstance(s, dict)
+        ]
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to fetch SSIDs for %s", network_id)
+        raise HTTPException(status_code=500, detail="Failed to fetch SSIDs")
 
 
 def _parse_json(content: str | list | dict) -> object | None:

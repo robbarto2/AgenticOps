@@ -9,17 +9,9 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
   troubleshooting: 'Diagnosing network issues...',
   security: 'Assessing security posture...',
   compliance: 'Auditing configurations...',
+  testing: 'Running instant tests...',
+  remediation: 'Preparing configuration changes...',
   canvas: 'Preparing results...',
-}
-
-const PIPELINE_STEPS = ['Routing', 'Agent', 'Results'] as const
-
-function getPipelineState(agent: string | null): ('done' | 'active' | 'pending')[] {
-  if (!agent) return ['pending', 'pending', 'pending']
-  if (agent === 'orchestrator') return ['active', 'pending', 'pending']
-  if (agent === 'canvas') return ['done', 'done', 'active']
-  // Any specialist agent
-  return ['done', 'active', 'pending']
 }
 
 function formatElapsed(ms: number): string {
@@ -36,6 +28,8 @@ export function AgentIndicator() {
   const completedToolCalls = useChatStore((s) => s.completedToolCalls)
   const isProcessing = useChatStore((s) => s.isProcessing)
   const processingStartedAt = useChatStore((s) => s.processingStartedAt)
+  const agentPlan = useChatStore((s) => s.agentPlan)
+  const planStep = useChatStore((s) => s.planStep)
 
   const [elapsed, setElapsed] = useState(0)
 
@@ -53,13 +47,8 @@ export function AgentIndicator() {
 
   if (!isProcessing && !activeAgent) return null
 
-  const pipelineState = getPipelineState(activeAgent)
   const description = activeAgent ? AGENT_DESCRIPTIONS[activeAgent] ?? `${agentDisplayName(activeAgent)} working...` : 'Processing...'
-
-  // Determine the label for the middle pipeline step
-  const middleLabel = activeAgent && activeAgent !== 'orchestrator' && activeAgent !== 'canvas'
-    ? agentDisplayName(activeAgent)
-    : PIPELINE_STEPS[1]
+  const isMultiPlan = agentPlan && agentPlan.length > 1
 
   // Group completed tool calls by agent
   const completedByAgent: Record<string, CompletedToolCall[]> = {}
@@ -69,58 +58,65 @@ export function AgentIndicator() {
     completedByAgent[key].push(tc)
   }
 
+  // Build pipeline steps based on plan
+  const pipelineSteps = isMultiPlan
+    ? buildMultiPlanPipeline(agentPlan, activeAgent)
+    : buildSimplePipeline(activeAgent)
+
   return (
-    <div className="px-4 py-2.5 border-t border-gray-800 bg-gray-900/50 space-y-2.5">
+    <div className="px-4 py-2.5 border-t border-gray-200 dark:border-[#1e2636] bg-gray-100/80 dark:bg-[#0a0d15]/80 space-y-2.5 transition-colors">
       {/* Header: agent name + elapsed timer */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-          <span className="text-xs text-blue-400 font-medium">
+          <span className="text-xs text-blue-500 dark:text-blue-400 font-medium">
             {activeAgent ? `${agentDisplayName(activeAgent)} Agent` : 'Processing'}
           </span>
+          {isMultiPlan && (
+            <span className="text-[10px] text-gray-500 dark:text-gray-400 font-mono">
+              Step {planStep + 1}/{agentPlan.length}
+            </span>
+          )}
         </div>
         {processingStartedAt && (
-          <span className="text-xs text-gray-500 font-mono tabular-nums">
+          <span className="text-xs text-gray-400 font-mono tabular-nums">
             {formatElapsed(elapsed)}
           </span>
         )}
       </div>
 
       {/* Description */}
-      <p className="text-xs text-gray-500 -mt-1">{description}</p>
+      <p className="text-xs text-gray-400 -mt-1">{description}</p>
 
       {/* Pipeline progress bar */}
       <div className="flex items-center gap-0">
-        {[PIPELINE_STEPS[0], middleLabel, PIPELINE_STEPS[2]].map((label, i) => {
-          const state = pipelineState[i]
-          return (
-            <div key={i} className="flex items-center">
-              {i > 0 && (
-                <div className={`w-8 h-px mx-1 ${
-                  state === 'pending' ? 'bg-gray-700' : 'bg-blue-500/50'
-                }`} />
+        {pipelineSteps.map(({ label, state }, i) => (
+          <div key={i} className="flex items-center">
+            {i > 0 && (
+              <div className={`w-8 h-px mx-1 ${
+                state === 'pending' ? 'bg-gray-300 dark:bg-gray-700' : 'bg-blue-500/50'
+              }`} />
+            )}
+            <div className="flex items-center gap-1.5">
+              {state === 'done' ? (
+                <svg className="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none">
+                  <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              ) : state === 'active' ? (
+                <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse" />
+              ) : (
+                <div className="w-2.5 h-2.5 border border-gray-300 dark:border-gray-600 rounded-full" />
               )}
-              <div className="flex items-center gap-1.5">
-                {state === 'done' ? (
-                  <svg className="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none">
-                    <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : state === 'active' ? (
-                  <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse" />
-                ) : (
-                  <div className="w-2.5 h-2.5 border border-gray-600 rounded-full" />
-                )}
-                <span className={`text-xs ${
-                  state === 'done' ? 'text-emerald-400' :
-                  state === 'active' ? 'text-blue-400' :
-                  'text-gray-600'
-                }`}>
-                  {label}
-                </span>
-              </div>
+              <span className={`text-xs ${
+                state === 'done' ? 'text-emerald-400' :
+                state === 'active' ? 'text-blue-400' :
+                'text-gray-500'
+              }`}>
+                {label}
+              </span>
             </div>
-          )
-        })}
+          </div>
+        ))}
       </div>
 
       {/* Tool calls: completed (from previous agents) + active */}
@@ -129,7 +125,7 @@ export function AgentIndicator() {
           {/* Completed tool calls grouped by agent */}
           {Object.entries(completedByAgent).map(([agent, calls]) => (
             <div key={agent} className="space-y-0.5">
-              <span className="text-[10px] text-gray-600 uppercase tracking-wider">
+              <span className="text-[10px] text-gray-500 uppercase tracking-wider">
                 {agentDisplayName(agent)}
               </span>
               {calls.map((tc, i) => (
@@ -142,7 +138,7 @@ export function AgentIndicator() {
           {activeToolCalls.length > 0 && (
             <div className="space-y-0.5">
               {completedToolCalls.length > 0 && activeAgent && (
-                <span className="text-[10px] text-gray-600 uppercase tracking-wider">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">
                   {agentDisplayName(activeAgent)}
                 </span>
               )}
@@ -155,6 +151,60 @@ export function AgentIndicator() {
       )}
     </div>
   )
+}
+
+type PipelineStep = { label: string; state: 'done' | 'active' | 'pending' }
+
+function buildSimplePipeline(agent: string | null): PipelineStep[] {
+  if (!agent) return [
+    { label: 'Routing', state: 'pending' },
+    { label: 'Agent', state: 'pending' },
+    { label: 'Results', state: 'pending' },
+  ]
+  if (agent === 'orchestrator') return [
+    { label: 'Routing', state: 'active' },
+    { label: 'Agent', state: 'pending' },
+    { label: 'Results', state: 'pending' },
+  ]
+  if (agent === 'canvas') return [
+    { label: 'Routing', state: 'done' },
+    { label: 'Agent', state: 'done' },
+    { label: 'Results', state: 'active' },
+  ]
+  return [
+    { label: 'Routing', state: 'done' },
+    { label: agentDisplayName(agent), state: 'active' },
+    { label: 'Results', state: 'pending' },
+  ]
+}
+
+function buildMultiPlanPipeline(plan: string[], agent: string | null): PipelineStep[] {
+  const steps: PipelineStep[] = [{ label: 'Routing', state: 'done' as const }]
+
+  for (const agentName of plan) {
+    let state: 'done' | 'active' | 'pending' = 'pending'
+    if (agent === agentName) {
+      state = 'active'
+    } else if (agent === 'canvas') {
+      state = 'done'
+    } else {
+      // Check if this agent is before the active one in the plan
+      const activeIdx = plan.indexOf(agent ?? '')
+      const thisIdx = plan.indexOf(agentName)
+      if (activeIdx >= 0 && thisIdx < activeIdx) {
+        state = 'done'
+      }
+    }
+    steps.push({ label: agentDisplayName(agentName), state })
+  }
+
+  // Add Results step
+  steps.push({
+    label: 'Results',
+    state: agent === 'canvas' ? 'active' as const : 'pending' as const,
+  })
+
+  return steps
 }
 
 function ToolCallRow({ tool, source, status, dimmed }: {

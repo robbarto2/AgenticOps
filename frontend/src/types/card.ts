@@ -5,6 +5,10 @@ export type CardType =
   | 'alert_summary'
   | 'text_report'
   | 'network_health'
+  | 'network_detail'
+  | 'org_summary'
+  | 'switch_detail'
+  | 'test_detail'
 
 export interface CardBase {
   id: string
@@ -79,6 +83,118 @@ export interface HealthMetric {
   icon?: 'wifi' | 'server' | 'shield' | 'globe'
 }
 
+export interface NetworkDetailCard extends CardBase {
+  type: 'network_detail'
+  data: {
+    networkId: string
+    timeZone?: string
+    tags?: string[]
+    productTypes?: string[]
+    notes?: string
+    stats: { deviceCount: number; clientCount: number; ssidCount: number }
+  }
+}
+
+export interface OrgSummaryCard extends CardBase {
+  type: 'org_summary'
+  data: {
+    orgName: string
+    networks: { total: number; prompt?: string }
+    clients: { total: number; prompt?: string }
+    devices: {
+      total: number
+      byType: { type: string; count: number; icon: string; prompt?: string }[]
+    }
+    health: { score: number; status: 'healthy' | 'warning' | 'critical'; prompt?: string }
+    alerts?: { critical: number; high: number; medium: number; low: number; prompt?: string }
+    license?: { status: string; daysRemaining?: number; prompt?: string }
+    firmware?: { compliance: number; prompt?: string }
+  }
+}
+
+export interface SwitchPort {
+  portId: string
+  enabled: boolean
+  status: 'active' | 'disabled' | 'disconnected' | 'warning' | 'error'
+  poeEnabled?: boolean
+  poeActive?: boolean
+  isUplink?: boolean
+  speedMbps?: number
+  duplexMode?: string
+  vlan?: number
+  client?: string
+}
+
+export interface SwitchDetailCard extends CardBase {
+  type: 'switch_detail'
+  data: {
+    serial: string
+    model: string
+    lanIp?: string
+    publicIp?: string
+    gateway?: string
+    dns?: string
+    firmware?: string
+    uptime?: string
+    lastBoot?: string
+    lastBootReason?: string
+    configStatus?: string
+    configLastFetched?: string
+    upgradeStatus?: string
+    upgradeCompletedAt?: string
+    networkId?: string
+    orgId?: string
+    ports?: SwitchPort[]
+    totalPorts?: number
+  }
+}
+
+export interface TestAgent {
+  agentId: string
+  agentName: string
+  location?: string
+  countryId?: string
+}
+
+export interface TestMetricDataPoint {
+  agentName: string
+  location?: string
+  responseTime?: number
+  availability?: number
+  loss?: number
+  latency?: number
+  jitter?: number
+  timestamp?: string
+}
+
+export interface TestAlertRule {
+  ruleId: string
+  ruleName: string
+  expression: string
+  notifications?: { email?: string[]; webhook?: string[] }
+}
+
+export interface TestDetailCard extends CardBase {
+  type: 'test_detail'
+  data: {
+    testId: string
+    testName: string
+    testType: string
+    target: string
+    enabled: boolean
+    interval: number
+    agents: TestAgent[]
+    alertRules?: TestAlertRule[]
+    description?: string
+    metrics?: {
+      availability?: number
+      avgResponseTime?: number
+      maxLoss?: number
+      dataPoints?: TestMetricDataPoint[]
+    }
+  }
+}
+
 export type AnyCard =
   | DataTableCard
   | BarChartCard
@@ -86,3 +202,7 @@ export type AnyCard =
   | AlertSummaryCard
   | TextReportCard
   | NetworkHealthCard
+  | NetworkDetailCard
+  | OrgSummaryCard
+  | SwitchDetailCard
+  | TestDetailCard

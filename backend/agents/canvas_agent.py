@@ -39,7 +39,7 @@ async def canvas_node(state: AgentState) -> dict:
     tool_summary = "\n\n---\n\n".join(tool_summary_parts) if tool_summary_parts else "No tool results available."
 
     llm = ChatAnthropic(
-        model=settings.model_name,
+        model=settings.canvas_model_name,
         api_key=settings.anthropic_api_key,
         max_tokens=4096,
     )

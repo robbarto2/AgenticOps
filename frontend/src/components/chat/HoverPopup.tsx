@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { TableRowMetadata } from '../../types/chat'
 import { useCanvasStore } from '../../store/canvasSlice'
-import type { NetworkHealthCard } from '../../types/card'
+import type { NetworkDetailCard } from '../../types/card'
 
 interface EntityStats {
   deviceCount: number
@@ -73,97 +73,51 @@ export function HoverPopup({ metadata, entityType, anchorRect, networkName, onCl
   }, [entityType, metadata.networkId])
 
   const handleAddToCanvas = () => {
-    const metrics = []
-
-    if (stats) {
-      metrics.push(
-        { label: 'Devices', value: String(stats.deviceCount), status: 'healthy' as const },
-        { label: 'Clients', value: String(stats.clientCount), status: 'healthy' as const },
-        { label: 'SSIDs', value: String(stats.ssidCount), status: 'healthy' as const },
-      )
-    }
-
-    if (metadata.timeZone) {
-      metrics.push({ label: 'Time Zone', value: metadata.timeZone, status: 'healthy' as const })
-    }
-
-    if (metadata.productTypes && metadata.productTypes.length > 0) {
-      metrics.push({
-        label: 'Product Types',
-        value: metadata.productTypes.join(', '),
-        status: 'healthy' as const,
-      })
-    }
-
-    if (metadata.tags && metadata.tags.length > 0) {
-      metrics.push({
-        label: 'Tags',
-        value: metadata.tags.join(', '),
-        status: 'healthy' as const,
-        icon: 'globe' as const,
-      })
-    }
-
-    if (metadata.notes) {
-      metrics.push({
-        label: 'Notes',
-        value: metadata.notes,
-        status: 'healthy' as const,
-      })
-    }
-
-    metrics.push({
-      label: 'Network ID',
-      value: metadata.networkId,
-      status: 'healthy' as const,
-      icon: 'server' as const,
-    })
-
-    const card: NetworkHealthCard = {
+    const card: NetworkDetailCard = {
       id: `card-${metadata.networkId}-${Date.now()}`,
-      type: 'network_health',
+      type: 'network_detail',
       title: networkName || metadata.networkId,
       source: 'meraki',
-      data: { metrics },
+      data: {
+        networkId: metadata.networkId,
+        timeZone: metadata.timeZone,
+        tags: metadata.tags,
+        productTypes: metadata.productTypes,
+        notes: metadata.notes,
+        stats: {
+          deviceCount: stats?.deviceCount ?? 0,
+          clientCount: stats?.clientCount ?? 0,
+          ssidCount: stats?.ssidCount ?? 0,
+        },
+      },
     }
 
     addCard(card)
     onClose()
   }
 
-  // Smart positioning: prefer right of row, flip left if viewport overflow
-  const popupWidth = 320
-  const popupEstimatedHeight = 340
-  const gap = 8
-  let left = anchorRect.right + gap
-  let top = anchorRect.top
-
-  if (left + popupWidth > window.innerWidth - 16) {
-    left = anchorRect.left - popupWidth - gap
-  }
-  if (left < 16) {
-    left = 16
-  }
-
-  // Clamp vertically so popup stays within viewport
-  if (top + popupEstimatedHeight > window.innerHeight - 16) {
-    top = Math.max(16, window.innerHeight - popupEstimatedHeight - 16)
-  }
+  // Center popup on screen so it's never cut off
+  const popupWidth = 360
 
   return createPortal(
     <div
-      ref={popupRef}
-      className="fixed z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl"
-      style={{ left, top, width: popupWidth, maxHeight: '80vh', overflow: 'auto' }}
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
+      <div className="absolute inset-0 bg-black/40" />
+      <div
+        ref={popupRef}
+        className="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl"
+        style={{ width: popupWidth, maxHeight: '80vh', overflow: 'auto' }}
+      >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800">
-        <p className="text-xs font-semibold text-gray-200 truncate pr-2">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800">
+        <p className="text-xs font-semibold text-gray-900 dark:text-gray-200 truncate pr-2">
           {networkName || metadata.networkId}
         </p>
         <button
           onClick={onClose}
-          className="flex-shrink-0 p-0.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800 rounded transition-colors cursor-pointer"
+          className="flex-shrink-0 p-0.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors cursor-pointer"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -176,19 +130,19 @@ export function HoverPopup({ metadata, entityType, anchorRect, networkName, onCl
         {metadata.notes && (
           <div>
             <span className="text-xs text-gray-500">Notes</span>
-            <p className="text-xs text-gray-300">{metadata.notes}</p>
+            <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.notes}</p>
           </div>
         )}
 
         <div>
           <span className="text-xs text-gray-500">Network ID</span>
-          <p className="text-xs text-gray-400 font-mono">{metadata.networkId}</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400 font-mono">{metadata.networkId}</p>
         </div>
 
         {metadata.timeZone && (
           <div>
             <span className="text-xs text-gray-500">Time Zone</span>
-            <p className="text-xs text-gray-300">{metadata.timeZone}</p>
+            <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.timeZone}</p>
           </div>
         )}
 
@@ -226,7 +180,7 @@ export function HoverPopup({ metadata, entityType, anchorRect, networkName, onCl
       </div>
 
       {/* Divider */}
-      <div className="border-t border-gray-800" />
+      <div className="border-t border-gray-200 dark:border-gray-800" />
 
       {/* Live stats */}
       <div className="px-3 py-2">
@@ -240,16 +194,16 @@ export function HoverPopup({ metadata, entityType, anchorRect, networkName, onCl
           <p className="text-xs text-red-400 mt-1">Failed to load stats</p>
         ) : stats ? (
           <div className="grid grid-cols-3 gap-2 mt-1">
-            <div className="text-center p-1.5 bg-gray-800/50 rounded">
-              <p className="text-sm font-semibold text-gray-200">{stats.deviceCount}</p>
+            <div className="text-center p-1.5 bg-gray-100 dark:bg-gray-800/50 rounded">
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-200">{stats.deviceCount}</p>
               <p className="text-xs text-gray-500">Devices</p>
             </div>
-            <div className="text-center p-1.5 bg-gray-800/50 rounded">
-              <p className="text-sm font-semibold text-gray-200">{stats.clientCount}</p>
+            <div className="text-center p-1.5 bg-gray-100 dark:bg-gray-800/50 rounded">
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-200">{stats.clientCount}</p>
               <p className="text-xs text-gray-500">Clients</p>
             </div>
-            <div className="text-center p-1.5 bg-gray-800/50 rounded">
-              <p className="text-sm font-semibold text-gray-200">{stats.ssidCount}</p>
+            <div className="text-center p-1.5 bg-gray-100 dark:bg-gray-800/50 rounded">
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-200">{stats.ssidCount}</p>
               <p className="text-xs text-gray-500">SSIDs</p>
             </div>
           </div>
@@ -257,7 +211,7 @@ export function HoverPopup({ metadata, entityType, anchorRect, networkName, onCl
       </div>
 
       {/* Divider */}
-      <div className="border-t border-gray-800" />
+      <div className="border-t border-gray-200 dark:border-gray-800" />
 
       {/* Add to canvas action */}
       <div className="px-3 py-2">
@@ -270,6 +224,7 @@ export function HoverPopup({ metadata, entityType, anchorRect, networkName, onCl
           </svg>
           Add to Canvas
         </button>
+      </div>
       </div>
     </div>,
     document.body

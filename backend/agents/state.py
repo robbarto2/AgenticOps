@@ -19,3 +19,8 @@ class AgentState(TypedDict):
     cards: list[dict]  # Card directives to send to frontend
     agent_events: list[dict]  # Progress events for streaming
     table_data: Annotated[list[dict], operator.add]  # Structured table data for interactive hover popups
+    # Multi-agent plan routing
+    agent_plan: list[str]  # Ordered list of agents to execute, e.g. ["discovery", "remediation"]
+    plan_step: int  # Current index in agent_plan (0-based)
+    # Remediation confirmation
+    pending_confirmation: dict  # Confirmation request awaiting user approval

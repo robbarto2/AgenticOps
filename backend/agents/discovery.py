@@ -7,9 +7,11 @@ import re
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langgraph.types import StreamWriter
 
 from agents.state import AgentState
-from agents.table_extractor import extract_network_table
+from agents.stream_util import safe_writer
+from agents.table_extractor import extract_network_table, extract_device_table, extract_test_table
 from agents.tools import build_langchain_tools
 from config import settings
 from prompts import load_prompt
@@ -20,13 +22,14 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT_TEMPLATE = load_prompt("discovery")
 
 
-async def discovery_node(state: AgentState) -> dict:
+async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
     """Execute network discovery for the user query."""
+    emit = safe_writer(writer)
     query = state["user_query"]
     skills_text = load_skills_for_agent("discovery")
 
     llm = ChatAnthropic(
-        model=settings.model_name,
+        model=settings.discovery_model_name,  # Use fast Haiku model for discovery
         api_key=settings.anthropic_api_key,
         max_tokens=4096,
     )
@@ -38,17 +41,23 @@ async def discovery_node(state: AgentState) -> dict:
         llm_with_tools = llm
 
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(skills=skills_text)
+    # state["messages"] already contains the current query (last item)
+    # plus limited recent history from websocket.py
     messages = [
         SystemMessage(content=system_prompt),
         *state["messages"],
-        HumanMessage(content=query),
     ]
 
     agent_events = list(state.get("agent_events", []))
-    tool_results = list(state.get("tool_results", []))
+    tool_results: list[dict] = []
 
-    max_iterations = 10
-    for _ in range(max_iterations):
+    max_iterations = 3  # Keep it fast - most queries need 1-2 iterations
+    for iteration in range(max_iterations):
+        # Keep only the system message, last user message, and last 8 messages to stay within context
+        if len(messages) > 10:
+            messages = [messages[0], messages[1]] + messages[-8:]
+            logger.info("Discovery: trimmed message history to prevent context overflow (iteration %d)", iteration)
+
         response = await llm_with_tools.ainvoke(messages)
         messages.append(response)
 
@@ -63,7 +72,8 @@ async def discovery_node(state: AgentState) -> dict:
             if tool_name.startswith("te_") or "thousandeyes" in tool_name.lower():
                 source = "thousandeyes"
 
-            agent_events.append({
+            # Stream tool_call event in real-time via StreamWriter
+            emit({
                 "type": "tool_call",
                 "tool": tool_name,
                 "source": source,
@@ -82,7 +92,8 @@ async def discovery_node(state: AgentState) -> dict:
                 "result": result,
             })
 
-            agent_events.append({
+            # Stream tool completion in real-time
+            emit({
                 "type": "tool_call",
                 "tool": tool_name,
                 "source": source,
@@ -91,22 +102,91 @@ async def discovery_node(state: AgentState) -> dict:
 
             messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
 
-    # Extract structured table data for interactive hover popups
-    table_data = extract_network_table(tool_results)
-    logger.info("Discovery node: extracted %d table_data entries from %d tool_results",
-                len(table_data), len(tool_results))
+    # Extract interactive tables when the user is asking for network, device, or test listings
+    table_data: list[dict] = []
+    if _is_network_listing_query(query):
+        table_data = extract_network_table(tool_results)
+        logger.info("Discovery node: extracted %d network table_data entries from %d tool_results",
+                     len(table_data), len(tool_results))
+    elif _is_device_listing_query(query):
+        table_data = extract_device_table(tool_results)
+        logger.info("Discovery node: extracted %d device table_data entries from %d tool_results",
+                     len(table_data), len(tool_results))
+    elif _is_test_listing_query(query):
+        table_data = extract_test_table(tool_results)
+        logger.info("Discovery node: extracted %d test table_data entries from %d tool_results",
+                     len(table_data), len(tool_results))
+    else:
+        logger.info("Discovery node: skipping table extraction (not a network/device/test listing query)")
 
     # If we have interactive tables, strip duplicate markdown tables from the
     # LLM response so the user doesn't see the same data twice.
     if table_data:
         response = _strip_markdown_tables(response)
 
+    # Advance plan step for multi-agent routing
+    plan_step = state.get("plan_step", 0)
+
     return {
-        "messages": [HumanMessage(content=query), response],
+        "messages": [response],
         "tool_results": tool_results,
         "agent_events": agent_events,
         "table_data": table_data,
+        "plan_step": plan_step + 1,
     }
+
+
+_NETWORK_LISTING_RE = re.compile(
+    r"\b(list|show|get|what\s+(are\s+)?(all\s+)?(the\s+)?)\b.*(network|site)s\b",
+    re.IGNORECASE,
+)
+
+_DEVICE_LISTING_RE = re.compile(
+    r"\b(list|show|get|what\s+(are\s+)?(all\s+)?(the\s+)?)\b.*(device|ap|switch|appliance|camera|sensor)s?\b",
+    re.IGNORECASE,
+)
+
+_DEVICE_TERMS_RE = re.compile(
+    r"\b(device|client|ssid|switch|ap\b|appliance|camera|sensor|firmware|port)",
+    re.IGNORECASE,
+)
+
+_HEALTH_SUMMARY_RE = re.compile(
+    r"\b(health|status|summary|overview|dashboard)\b",
+    re.IGNORECASE,
+)
+
+_TEST_LISTING_RE = re.compile(
+    r"\b(list|show|get|what\s+(are\s+)?(all\s+)?(the\s+)?)\b.*(test|tests|monitoring)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_network_listing_query(query: str) -> bool:
+    """Return True if the user is asking for a list of networks (not devices in a network)."""
+    # If the query is asking about health/status/summary, don't show network table
+    if _HEALTH_SUMMARY_RE.search(query):
+        return False
+    # Must mention listing + networks (plural), but NOT mention any device-related terms
+    return bool(_NETWORK_LISTING_RE.search(query)) and not bool(_DEVICE_TERMS_RE.search(query))
+
+
+def _is_device_listing_query(query: str) -> bool:
+    """Return True if the user is asking for a list of devices."""
+    # If the query is asking about health/status/summary, don't show device table
+    if _HEALTH_SUMMARY_RE.search(query):
+        return False
+    # Must mention listing + devices/APs/switches/etc
+    return bool(_DEVICE_LISTING_RE.search(query))
+
+
+def _is_test_listing_query(query: str) -> bool:
+    """Return True if the user is asking for a list of tests."""
+    # If the query is asking about health/status/summary, don't show test table
+    if _HEALTH_SUMMARY_RE.search(query):
+        return False
+    # Must mention listing + test/tests/monitoring
+    return bool(_TEST_LISTING_RE.search(query))
 
 
 # Regex matching a full markdown table (header row, separator row, data rows)

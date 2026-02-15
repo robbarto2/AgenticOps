@@ -85,19 +85,19 @@ function StackNodeInner({ data }: NodeProps) {
         <div className="flex items-center gap-3">
           <CategoryIcon category={stack.category} color={stack.color} />
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            <div className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {stack.label}
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              {stack.expanded ? 'Click to collapse' : 'Click to expand'}
+            <div className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+              {count} {count === 1 ? 'card' : 'cards'} • {stack.expanded ? 'Click to collapse' : 'Click to expand'}
             </div>
           </div>
           <span
-            className="flex items-center justify-center text-xs font-bold rounded-full w-7 h-7"
+            className="flex items-center justify-center text-sm font-bold rounded-full w-8 h-8"
             style={{
               backgroundColor: `${stack.color}20`,
               color: stack.color,
-              border: `1.5px solid ${stack.color}60`,
+              border: `2px solid ${stack.color}60`,
             }}
           >
             {count}

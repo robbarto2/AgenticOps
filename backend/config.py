@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     meraki_org_id: str = ""
     meraki_active_profile: str = "caladan"
     enable_caching: bool = True
-    cache_ttl_seconds: int = 300
+    cache_ttl_seconds: int = 3600  # 1 hour cache for Meraki MCP (matches our app cache)
     read_only_mode: bool = False
     enable_file_caching: bool = True
     max_response_tokens: int = 5000
@@ -41,11 +41,13 @@ class Settings(BaseSettings):
 
     # Server
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 8080
 
     # LLM
     model_name: str = "claude-sonnet-4-20250514"
     orchestrator_model_name: str = "claude-haiku-4-5-20251001"
+    canvas_model_name: str = "claude-haiku-4-5-20251001"
+    discovery_model_name: str = "claude-haiku-4-5-20251001"  # Fast model for simple discovery queries
 
     model_config = {
         "env_file": str(Path(__file__).resolve().parent.parent / ".env"),

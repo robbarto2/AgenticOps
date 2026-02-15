@@ -40,6 +40,32 @@ class EntityStatsResponse(BaseModel):
     ssidCount: int
 
 
+class DeviceDetail(BaseModel):
+    """Single device entry."""
+
+    name: str
+    model: str
+    serial: str
+    status: str
+
+
+class ClientDetail(BaseModel):
+    """Single client entry."""
+
+    description: str
+    mac: str
+    ip: str
+    vlan: str
+
+
+class SsidDetail(BaseModel):
+    """Single SSID entry."""
+
+    name: str
+    authMode: str
+    enabled: bool
+
+
 class WebSocketMessage(BaseModel):
     """Incoming WebSocket message from client."""
 

@@ -1,24 +1,55 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     line-height: 1.5;
     font-weight: 400;
-    color-scheme: dark;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+
+    /* Light theme variables */
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8fafc;
+    --bg-tertiary: #f1f5f9;
+    --border-primary: #e2e8f0;
+    --border-secondary: #cbd5e1;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-tertiary: #64748b;
+  }
+
+  :root.dark,
+  body.dark {
+    color-scheme: dark;
+
+    /* Dark theme variables */
+    --bg-primary: #080b12;
+    --bg-secondary: #0e1119;
+    --bg-tertiary: #141820;
+    --border-primary: #1e2636;
+    --border-secondary: #2a3348;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-tertiary: #64748b;
   }
 
   body {
     margin: 0;
     min-width: 320px;
     min-height: 100vh;
-    background-color: #0a0a0f;
-    color: #e2e8f0;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    transition: background-color 0.2s, color 0.2s;
+  }
+
+  body.dark {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
   }
 
   #root {
@@ -28,31 +59,55 @@
   }
 }
 
-/* React Flow overrides for dark theme */
+/* React Flow overrides */
 .react-flow__background {
-  background-color: #0f1117 !important;
+  background-color: #f8fafc !important;
 }
 
 .react-flow__minimap {
-  background-color: #1a1b23 !important;
-  border: 1px solid #2d2e3a !important;
+  background-color: #f1f5f9 !important;
+  border: 1px solid #e2e8f0 !important;
   border-radius: 8px !important;
 }
 
 .react-flow__controls {
-  border: 1px solid #2d2e3a !important;
+  border: 1px solid #e2e8f0 !important;
   border-radius: 8px !important;
   overflow: hidden;
 }
 
 .react-flow__controls-button {
-  background-color: #1a1b23 !important;
-  border-bottom: 1px solid #2d2e3a !important;
-  fill: #94a3b8 !important;
+  background-color: #ffffff !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  fill: #64748b !important;
 }
 
 .react-flow__controls-button:hover {
-  background-color: #2d2e3a !important;
+  background-color: #f8fafc !important;
+}
+
+:root.dark .react-flow__background {
+  background-color: #0e1119 !important;
+}
+
+:root.dark .react-flow__minimap {
+  background-color: #1a202c !important;
+  border-color: #4a5568 !important;
+  border-width: 2px !important;
+}
+
+:root.dark .react-flow__controls {
+  border-color: #4a5568 !important;
+}
+
+:root.dark .react-flow__controls-button {
+  background-color: #1a202c !important;
+  border-bottom-color: #4a5568 !important;
+  fill: #cbd5e1 !important;
+}
+
+:root.dark .react-flow__controls-button:hover {
+  background-color: #2d3748 !important;
 }
 
 /* Markdown table styling in chat */
@@ -63,21 +118,34 @@
 }
 
 .prose thead th {
-  background-color: #1e293b;
+  background-color: var(--bg-tertiary);
   padding: 0.5rem 0.75rem;
   text-align: left;
   font-weight: 600;
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid var(--border-primary);
   white-space: nowrap;
 }
 
 .prose tbody td {
   padding: 0.4rem 0.75rem;
-  border-bottom: 1px solid #1e293b;
+  border-bottom: 1px solid var(--border-primary);
 }
 
 .prose tbody tr:hover {
-  background-color: #1e293b40;
+  background-color: color-mix(in srgb, var(--bg-tertiary) 40%, transparent);
+}
+
+:root.dark .prose thead th {
+  background-color: #141c2b;
+  border-bottom-color: #1e2636;
+}
+
+:root.dark .prose tbody td {
+  border-bottom-color: #141c2b;
+}
+
+:root.dark .prose tbody tr:hover {
+  background-color: #141c2b60;
 }
 
 /* Custom scrollbar */
@@ -90,10 +158,46 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: var(--border-secondary);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+  background: var(--text-tertiary);
+}
+
+:root.dark ::-webkit-scrollbar-thumb {
+  background: #1e2636;
+}
+
+:root.dark ::-webkit-scrollbar-thumb:hover {
+  background: #2a3348;
+}
+
+/* Card scaling for better readability */
+.card-content {
+  font-size: 1.0625rem;
+  line-height: 1.7;
+}
+
+.card-content .text-\[10px\] {
+  font-size: 0.875rem !important;
+}
+
+.card-content .text-xs {
+  font-size: 0.9375rem !important;
+}
+
+.card-content .text-sm {
+  font-size: 1rem !important;
+}
+
+.card-content .text-base {
+  font-size: 1.0625rem !important;
+}
+
+/* Enable text selection inside cards */
+.card-content {
+  user-select: text;
+  -webkit-user-select: text;
 }

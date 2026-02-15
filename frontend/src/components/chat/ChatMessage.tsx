@@ -45,7 +45,7 @@ export function ChatMessage({ message }: Props) {
     : message.content
 
   return (
-    <div className={`px-4 py-3 ${isUser ? 'bg-gray-900/30' : 'bg-transparent'}`}>
+    <div className={`px-4 py-3 ${isUser ? 'bg-gray-100 dark:bg-[#111827]/60' : 'bg-transparent'}`}>
       <div className="flex items-start gap-3">
         {/* Avatar */}
         <div
@@ -61,7 +61,7 @@ export function ChatMessage({ message }: Props) {
         <div className="flex-1 min-w-0">
           {/* Header */}
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-medium text-gray-300">
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
               {isUser ? 'You' : 'AgenticOps'}
             </span>
             {message.agentName && (
@@ -69,13 +69,13 @@ export function ChatMessage({ message }: Props) {
                 {agentDisplayName(message.agentName)}
               </span>
             )}
-            <span className="text-xs text-gray-600">
+            <span className="text-xs text-gray-400 dark:text-gray-500">
               {formatTimestamp(message.timestamp)}
             </span>
           </div>
 
           {/* Markdown content */}
-          <div className="text-sm text-gray-300 prose prose-invert prose-sm max-w-none overflow-x-auto">
+          <div className="text-sm text-gray-900 dark:text-gray-100 prose dark:prose-invert prose-sm max-w-none overflow-x-auto">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {displayContent}
             </ReactMarkdown>
@@ -83,7 +83,7 @@ export function ChatMessage({ message }: Props) {
 
           {/* Interactive tables — rendered outside prose to avoid style conflicts */}
           {message.tableData?.map((td) => (
-            <div key={td.table_id} className="mt-3 overflow-x-auto rounded-lg border border-gray-800">
+            <div key={td.table_id} className="mt-3 overflow-x-auto rounded-lg border border-gray-200 dark:border-[#1e2636]">
               <InteractiveTable tableData={td} />
             </div>
           ))}

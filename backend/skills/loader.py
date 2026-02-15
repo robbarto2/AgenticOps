@@ -14,15 +14,31 @@ AGENT_SKILLS: dict[str, list[str]] = {
     "troubleshooting": [
         "wireless_troubleshooting.md",
         "wan_performance.md",
+        "client_troubleshooting.md",
+        "application_performance.md",
     ],
     "compliance": [
         "config_audit.md",
+        "monitoring_compliance.md",
     ],
     "security": [
         "security_posture.md",
+        "switch_port_security.md",
+        "wireless_security.md",
     ],
     "discovery": [
         "network_inventory.md",
+        "organizational_summary.md",
+    ],
+    "testing": [
+        "instant_testing.md",
+        "connectivity_validation.md",
+        "template_deployment.md",
+    ],
+    "remediation": [
+        "switch_port_remediation.md",
+        "ssid_remediation.md",
+        "firewall_remediation.md",
     ],
 }
 

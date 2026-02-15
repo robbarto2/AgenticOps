@@ -25,7 +25,8 @@ export interface TableRowMetadata {
 export interface TableRow {
   id: string
   cells: string[]
-  metadata: TableRowMetadata
+  metadata: TableRowMetadata | any
+  status_type?: 'normal' | 'warning' | 'error'
 }
 
 export interface TableData {

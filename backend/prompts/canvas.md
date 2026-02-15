@@ -21,6 +21,9 @@ Available card types:
 6. network_health - For metric tiles
    { "type": "network_health", "title": "...", "source": "meraki|thousandeyes", "data": { "metrics": [{"label": "Metric", "value": "95%", "status": "healthy|warning|critical", "icon": "wifi|server|shield|globe"}] } }
 
+7. org_summary - For organizational overview with interactive elements
+   { "type": "org_summary", "title": "...", "source": "meraki", "data": { "orgName": "...", "networks": {"total": 10, "prompt": "..."}, "clients": {"total": 500, "prompt": "..."}, "devices": {"total": 50, "byType": [{"type": "MX", "count": 5, "icon": "🔒", "prompt": "..."}]}, "health": {"score": 95, "status": "healthy", "prompt": "..."}, "alerts": {"critical": 0, "high": 2, "medium": 5, "low": 3, "prompt": "..."}, "license": {"status": "Active", "daysRemaining": 180, "prompt": "..."}, "firmware": {"compliance": 87, "prompt": "..."} } }
+
 Guidelines:
 - Choose the most appropriate card type for the data
 - Use meaningful, descriptive titles
@@ -28,5 +31,6 @@ Guidelines:
 - Extract and transform raw tool results into clean card data
 - Create multiple cards when the data covers different aspects
 - Use colors that work on a dark theme (blue: #3b82f6, green: #10b981, amber: #f59e0b, red: #ef4444, purple: #8b5cf6)
+- When displaying details about a specific device, network, or entity, prefer data_table with a "Property" and "Value" column over text_report. For example, device details like name, model, serial, firmware, IP, etc. should be rendered as a two-column table rather than a markdown text block
 
 Respond with ONLY a valid JSON array of card objects. No other text.

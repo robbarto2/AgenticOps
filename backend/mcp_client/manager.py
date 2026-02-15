@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import logging
+import time
 from contextlib import AsyncExitStack
 
 from mcp import ClientSession, StdioServerParameters
@@ -14,6 +18,19 @@ from mcp_client.types import ToolDescriptor
 
 logger = logging.getLogger(__name__)
 
+# Rate limiting: minimum delay between API calls (in seconds)
+MIN_CALL_INTERVAL = 0.5  # 500ms between calls = max 2 calls/sec
+
+# Cache TTL: how long to cache results (in seconds)
+CACHE_TTL = 3600  # 1 hour (aggressive caching to minimize API traffic and avoid rate limits)
+
+# Retry settings for rate limit errors
+MAX_RETRIES = 5
+RETRY_DELAY = 2.0  # Initial retry delay in seconds
+
+# Strings that indicate a rate-limit error in MCP response content
+_RATE_LIMIT_MARKERS = ("429", "rate limit", "too many requests", "rate-limit")
+
 
 class MCPClientManager:
     """Manages connections to Meraki (stdio) and ThousandEyes (SSE) MCP servers."""
@@ -24,6 +41,12 @@ class MCPClientManager:
         self._te_session: ClientSession | None = None
         self._tools: list[ToolDescriptor] = []
         self._tool_map: dict[str, ToolDescriptor] = {}
+
+        # Rate limiting
+        self._last_call_time: float = 0
+
+        # Cache: {cache_key: (result, timestamp)}
+        self._cache: dict[str, tuple[dict, float]] = {}
 
     @property
     def tools(self) -> list[ToolDescriptor]:
@@ -55,7 +78,9 @@ class MCPClientManager:
         self._te_session = None
         self._tools.clear()
         self._tool_map.clear()
-        logger.info("MCP client disconnected")
+        cache_size = len(self._cache)
+        self._cache.clear()
+        logger.info("MCP client disconnected (cleared %d cached entries)", cache_size)
 
     async def _connect_meraki(self) -> None:
         """Connect to Meraki MCP via stdio (local subprocess)."""
@@ -102,6 +127,7 @@ class MCPClientManager:
 
         try:
             headers = {"Authorization": f"Bearer {settings.te_token}"}
+
             transport = await self._exit_stack.enter_async_context(
                 streamablehttp_client(url=settings.te_mcp_url, headers=headers)
             )
@@ -124,36 +150,132 @@ class MCPClientManager:
                 self._tool_map[tool.name] = descriptor
 
             logger.info("ThousandEyes MCP connected: %d tools discovered", len(tools_result.tools))
-        except Exception:
-            logger.exception("Failed to connect to ThousandEyes MCP")
+        except Exception as e:
+            logger.error("Failed to connect to ThousandEyes MCP: %s", str(e))
+            logger.debug("Full error:", exc_info=True)
+
+    def _make_cache_key(self, tool_name: str, arguments: dict | None) -> str:
+        """Generate a cache key from tool name and arguments."""
+        args_json = json.dumps(arguments or {}, sort_keys=True)
+        key_str = f"{tool_name}:{args_json}"
+        return hashlib.md5(key_str.encode()).hexdigest()
+
+    def _get_cached(self, cache_key: str) -> dict | None:
+        """Get cached result if still valid, otherwise return None."""
+        if cache_key in self._cache:
+            result, timestamp = self._cache[cache_key]
+            if time.time() - timestamp < CACHE_TTL:
+                logger.debug("Cache HIT for key %s (age: %.1fs)", cache_key[:8], time.time() - timestamp)
+                return result
+            else:
+                # Expired, remove from cache
+                del self._cache[cache_key]
+                logger.debug("Cache EXPIRED for key %s", cache_key[:8])
+        return None
+
+    def _cache_result(self, cache_key: str, result: dict) -> None:
+        """Store result in cache with current timestamp."""
+        self._cache[cache_key] = (result, time.time())
+        logger.debug("Cache STORE for key %s (%d total cached)", cache_key[:8], len(self._cache))
+
+    async def _throttle(self) -> None:
+        """Apply rate limiting by waiting if needed."""
+        now = time.time()
+        time_since_last = now - self._last_call_time
+        if time_since_last < MIN_CALL_INTERVAL:
+            wait_time = MIN_CALL_INTERVAL - time_since_last
+            logger.debug("Throttling: waiting %.3fs before next API call", wait_time)
+            await asyncio.sleep(wait_time)
+        self._last_call_time = time.time()
+
+    @staticmethod
+    def _is_rate_limit(text: str) -> bool:
+        """Check if text contains rate-limit indicators."""
+        lower = text.lower()
+        return any(marker in lower for marker in _RATE_LIMIT_MARKERS)
 
     async def call_tool(self, tool_name: str, arguments: dict | None = None) -> dict:
-        """Call an MCP tool by name, routing to the correct session."""
+        """Call an MCP tool by name, routing to the correct session.
+
+        Implements caching, rate limiting, and retry with exponential backoff.
+        Detects rate-limit errors both from exceptions AND from MCP response content.
+        """
         descriptor = self._tool_map.get(tool_name)
         if descriptor is None:
             return {"error": f"Unknown tool: {tool_name}"}
+
+        # Check cache first (only for read operations, not writes)
+        cache_key = self._make_cache_key(tool_name, arguments)
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
 
         session = (
             self._meraki_session if descriptor.source == "meraki" else self._te_session
         )
         if session is None:
-            return {"error": f"MCP session not connected for source: {descriptor.source}"}
+            source_name = "Meraki" if descriptor.source == "meraki" else "ThousandEyes"
+            return {"error": f"I'm having trouble connecting to {source_name}. Please try again in a moment."}
 
-        try:
-            result = await session.call_tool(tool_name, arguments or {})
-            # Extract text content from MCP result
-            contents = []
-            for block in result.content:
-                if hasattr(block, "text"):
-                    contents.append(block.text)
-            return {
-                "tool": tool_name,
-                "source": descriptor.source,
-                "content": "\n".join(contents) if contents else str(result.content),
-            }
-        except Exception as e:
-            logger.exception("Error calling tool %s", tool_name)
-            return {"error": f"Tool call failed: {e}", "tool": tool_name}
+        # Retry loop with exponential backoff for rate limits
+        for attempt in range(MAX_RETRIES):
+            # Apply rate limiting before each attempt
+            await self._throttle()
+
+            try:
+                result = await session.call_tool(tool_name, arguments or {})
+                # Extract text content from MCP result
+                contents = []
+                for block in result.content:
+                    if hasattr(block, "text"):
+                        contents.append(block.text)
+
+                content_text = "\n".join(contents) if contents else str(result.content)
+
+                # Check if the MCP server returned a rate-limit error as content
+                if self._is_rate_limit(content_text) and attempt < MAX_RETRIES - 1:
+                    delay = RETRY_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "Rate limit in response content for tool %s (attempt %d/%d), retrying in %.1fs",
+                        tool_name, attempt + 1, MAX_RETRIES, delay
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                response = {
+                    "tool": tool_name,
+                    "source": descriptor.source,
+                    "content": content_text,
+                }
+
+                # Only cache successful results (not error responses)
+                if not result.isError:
+                    self._cache_result(cache_key, response)
+                else:
+                    logger.debug("Skipping cache for error response from tool %s", tool_name)
+
+                return response
+
+            except Exception as e:
+                error_str = str(e).lower()
+
+                # Check if this is a rate limit error
+                if self._is_rate_limit(error_str) and attempt < MAX_RETRIES - 1:
+                    delay = RETRY_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "Rate limit exception on tool %s (attempt %d/%d), retrying in %.1fs",
+                        tool_name, attempt + 1, MAX_RETRIES, delay
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                # Not a rate limit error, or out of retries
+                logger.exception("Error calling tool %s (attempt %d/%d)", tool_name, attempt + 1, MAX_RETRIES)
+                break
+
+        # All retries failed
+        source_name = "Meraki" if descriptor.source == "meraki" else "ThousandEyes"
+        return {"error": f"I'm having trouble connecting to {source_name}. Please try again in a moment.", "tool": tool_name}
 
     def get_tools_for_agent(self, agent_type: str) -> list[ToolDescriptor]:
         """Get tools available to a specific agent type.
@@ -185,11 +307,15 @@ _DISCOVERY_TOOLS = {
     "getNetworkWirelessSsids",
     "getDevice",
     "call_meraki_api",
+    "search_methods",
+    "get_method_info",
     # ThousandEyes
     "get_account_groups",
     "list_network_app_synthetics_tests",
+    "get_network_app_synthetics_test",
     "list_cloud_enterprise_agents",
     "list_endpoint_agents",
+    "list_endpoint_agent_tests",
 }
 
 _TROUBLESHOOTING_TOOLS = {
@@ -201,6 +327,8 @@ _TROUBLESHOOTING_TOOLS = {
     "getNetworkWirelessSsids",
     "getDevice",
     "call_meraki_api",
+    "search_methods",
+    "get_method_info",
     # ThousandEyes
     "list_network_app_synthetics_tests",
     "get_network_app_synthetics_test",
@@ -212,6 +340,11 @@ _TROUBLESHOOTING_TOOLS = {
     "get_full_path_visualization",
     "list_cloud_enterprise_agents",
     "list_endpoint_agents",
+    "list_endpoint_agent_tests",
+    "get_bgp_route_test_results",
+    "list_events",
+    "get_event",
+    "search_outages",
 }
 
 _SECURITY_TOOLS = {
@@ -219,8 +352,13 @@ _SECURITY_TOOLS = {
     "getOrganizationNetworks",
     "getNetworkDevices",
     "getNetworkEvents",
+    "getNetworkClients",
+    "getNetworkWirelessSsids",
+    "getDeviceSwitchPorts",
     "getDevice",
     "call_meraki_api",
+    "search_methods",
+    "get_method_info",
     # ThousandEyes
     "list_alerts",
     "get_alert",
@@ -231,7 +369,7 @@ _SECURITY_TOOLS = {
 }
 
 _COMPLIANCE_TOOLS = {
-    # Meraki only
+    # Meraki
     "getOrganizationNetworks",
     "getOrganizationDevices",
     "getNetworkDevices",
@@ -239,6 +377,48 @@ _COMPLIANCE_TOOLS = {
     "getDeviceSwitchPorts",
     "getDevice",
     "call_meraki_api",
+    "search_methods",
+    "get_method_info",
+    # ThousandEyes
+    "list_network_app_synthetics_tests",
+    "get_network_app_synthetics_test",
+    "list_alerts",
+    "get_alert",
+}
+
+_TESTING_TOOLS = {
+    # ThousandEyes instant tests
+    "run_agent_to_server_instant_test",
+    "run_http_server_instant_test",
+    "run_page_load_instant_test",
+    "run_web_transaction_instant_test",
+    "run_api_instant_test",
+    "run_dns_server_instant_test",
+    "run_dns_trace_instant_test",
+    "run_agent_to_agent_instant_test",
+    "rerun_instant_test",
+    "get_instant_test_metrics",
+    # ThousandEyes templates
+    "get_templates",
+    "deploy_template",
+    # ThousandEyes agent discovery (find agents to run from)
+    "list_cloud_enterprise_agents",
+    "list_endpoint_agents",
+}
+
+_REMEDIATION_TOOLS = {
+    # Meraki write operations
+    "updateDeviceSwitchPort",
+    "call_meraki_api",
+    # Meraki API discovery (find the right method/params before writing)
+    "search_methods",
+    "get_method_info",
+    # Meraki read-only lookups (resolve IDs before writing)
+    "getOrganizationNetworks",
+    "getNetworkDevices",
+    "getDevice",
+    "getNetworkWirelessSsids",
+    "getDeviceSwitchPorts",
 }
 
 _AGENT_TOOL_ALLOWLIST: dict[str, set[str]] = {
@@ -246,6 +426,8 @@ _AGENT_TOOL_ALLOWLIST: dict[str, set[str]] = {
     "troubleshooting": _TROUBLESHOOTING_TOOLS,
     "security": _SECURITY_TOOLS,
     "compliance": _COMPLIANCE_TOOLS,
+    "testing": _TESTING_TOOLS,
+    "remediation": _REMEDIATION_TOOLS,
 }
 
 

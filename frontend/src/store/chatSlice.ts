@@ -5,6 +5,8 @@ export interface CompletedToolCall extends ToolCallEvent {
   agent: string
 }
 
+export type ChatMode = 'docked' | 'floating' | 'fullscreen'
+
 interface ChatState {
   messages: ChatMessage[]
   activeAgent: string | null
@@ -14,6 +16,13 @@ interface ChatState {
   processingStartedAt: number | null
   pendingPrompt: string | null
   pendingTableData: TableData[]
+  // Multi-agent plan state
+  agentPlan: string[] | null
+  planStep: number
+  // Remediation confirmation state
+  pendingConfirmation: { description: string; agent: string } | null
+  // Chat layout mode
+  chatMode: ChatMode
 
   addMessage: (message: ChatMessage) => void
   appendToLastAssistant: (text: string) => void
@@ -25,6 +34,9 @@ interface ChatState {
   clearToolCalls: () => void
   setPendingPrompt: (prompt: string | null) => void
   clearMessages: () => void
+  setAgentPlan: (plan: string[], step: number) => void
+  setPendingConfirmation: (confirmation: { description: string; agent: string } | null) => void
+  setChatMode: (mode: ChatMode) => void
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -36,6 +48,10 @@ export const useChatStore = create<ChatState>((set) => ({
   processingStartedAt: null,
   pendingPrompt: null,
   pendingTableData: [],
+  agentPlan: null,
+  planStep: 0,
+  pendingConfirmation: null,
+  chatMode: 'docked',
 
   addMessage: (message) =>
     set((state) => ({ messages: [...state.messages, message] })),
@@ -104,8 +120,8 @@ export const useChatStore = create<ChatState>((set) => ({
 
   setProcessing: (processing) =>
     set(processing
-      ? { isProcessing: true, processingStartedAt: Date.now() }
-      : { isProcessing: false, processingStartedAt: null, completedToolCalls: [] }
+      ? { isProcessing: true, processingStartedAt: Date.now(), completedToolCalls: [], agentPlan: null, planStep: 0, pendingConfirmation: null }
+      : { isProcessing: false, processingStartedAt: null, completedToolCalls: [], pendingConfirmation: null }
     ),
 
   clearToolCalls: () =>
@@ -123,5 +139,11 @@ export const useChatStore = create<ChatState>((set) => ({
 
   setPendingPrompt: (prompt) => set({ pendingPrompt: prompt }),
 
-  clearMessages: () => set({ messages: [], pendingTableData: [] }),
+  clearMessages: () => set({ messages: [], pendingTableData: [], agentPlan: null, planStep: 0, pendingConfirmation: null }),
+
+  setAgentPlan: (plan, step) => set({ agentPlan: plan, planStep: step }),
+
+  setPendingConfirmation: (confirmation) => set({ pendingConfirmation: confirmation }),
+
+  setChatMode: (mode) => set({ chatMode: mode }),
 }))

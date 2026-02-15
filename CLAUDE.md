@@ -17,14 +17,16 @@ AgenticOps/
 │   ├── main.py                   # FastAPI app entry point + lifespan
 │   ├── config.py                 # Pydantic settings from .env
 │   ├── agents/                   # LangGraph multi-agent system
-│   │   ├── graph.py              # StateGraph definition (nodes + edges)
+│   │   ├── graph.py              # StateGraph definition (nodes + edges + plan_router)
 │   │   ├── state.py              # AgentState TypedDict
-│   │   ├── orchestrator.py       # Routes queries to specialists
-│   │   ├── troubleshooting.py    # WiFi, WAN, performance diagnosis
-│   │   ├── compliance.py         # Config audit, policy checks
-│   │   ├── security.py           # Firewall, threat assessment
+│   │   ├── orchestrator.py       # Routes queries to specialists (supports multi-agent plans)
+│   │   ├── troubleshooting.py    # WiFi, WAN, performance, client, app diagnosis
+│   │   ├── compliance.py         # Config audit, policy checks, monitoring compliance
+│   │   ├── security.py           # Firewall, threat, switch port, wireless security
 │   │   ├── discovery.py          # Inventory, health, topology
-│   │   ├── canvas_agent.py       # Structures results into card JSON
+│   │   ├── testing.py            # On-demand ThousandEyes instant tests
+│   │   ├── remediation.py        # Write operations with user confirmation
+│   │   ├── canvas_agent.py       # Structures results into card JSON (Haiku model)
 │   │   └── tools.py              # MCP → LangChain tool wrappers
 │   ├── mcp_client/
 │   │   ├── manager.py            # MCPClientManager (Meraki stdio + TE HTTP)
@@ -45,7 +47,7 @@ AgenticOps/
         ├── App.tsx               # Root component
         ├── components/
         │   ├── layout/           # AppLayout (split pane), TopBar
-        │   ├── chat/             # ChatPanel, ChatMessage, ChatInput, AgentIndicator
+        │   ├── chat/             # ChatPanel, ChatMessage, ChatInput, AgentIndicator, ConfirmationModal
         │   ├── canvas/           # CanvasPanel (ReactFlow wrapper)
         │   └── cards/            # CardNode + 6 card type components
         ├── hooks/                # useWebSocket, useChat, useCanvas
@@ -61,7 +63,7 @@ AgenticOps/
 source .venv/bin/activate
 python main.py
 ```
-Runs on `http://localhost:8000`. Uvicorn with `--reload` watches for Python file changes.
+Runs on `http://localhost:8080`. Uvicorn with `--reload` watches for Python file changes. **Port 8080** (not 8000 — that port is used by another application on this machine).
 
 **Frontend** (from `frontend/` directory):
 ```bash
@@ -87,12 +89,25 @@ from backend.agents.state import AgentState
 ## Agent graph flow
 
 ```
-User query → Orchestrator → [conditional routing] → Specialist → Canvas → END
+User query → Orchestrator → [conditional routing] → Specialist → Plan Router → [next specialist or canvas] → END
 ```
 
-- **Orchestrator**: Classifies query, returns one of: `troubleshooting`, `compliance`, `security`, `discovery`
-- **Specialist agents**: Call MCP tools via agentic loop (up to 10 iterations), collect tool_results
-- **Canvas agent**: Transforms tool_results into card directives (JSON array of card objects)
+Single-agent queries (most common):
+```
+Orchestrator → Specialist → Canvas → END
+```
+
+Multi-agent plans (compound queries):
+```
+Orchestrator → Specialist₁ → Plan Router → Specialist₂ → Plan Router → Canvas → END
+```
+
+- **Orchestrator**: Classifies query, returns one or more of: `troubleshooting`, `compliance`, `security`, `discovery`, `testing`, `remediation`
+- **Plan Router**: Pure-logic node (no LLM call) that dispatches to the next agent in the plan sequence
+- **Specialist agents**: Call MCP tools via agentic loop (up to 10 iterations), collect tool_results, increment plan_step
+- **Testing agent**: Runs on-demand ThousandEyes instant tests (HTTP, DNS, page load, etc.)
+- **Remediation agent**: Executes write operations with mandatory user confirmation before changes
+- **Canvas agent**: Transforms tool_results into card directives (JSON array of card objects, uses Haiku model)
 
 ## MCP connections
 
@@ -102,20 +117,27 @@ User query → Orchestrator → [conditional routing] → Specialist → Canvas 
 | ThousandEyes | Streamable HTTP | `TE_MCP_URL=https://api.thousandeyes.com/mcp`, `TE_TOKEN` |
 
 Tool access by agent:
-- **Troubleshooting**: Meraki + ThousandEyes
-- **Compliance**: Meraki only
-- **Security**: Meraki + ThousandEyes
+- **Troubleshooting**: Meraki + ThousandEyes (including BGP, events, outages)
+- **Compliance**: Meraki + ThousandEyes (monitoring compliance)
+- **Security**: Meraki + ThousandEyes (including switch port, wireless audit)
 - **Discovery**: Meraki + ThousandEyes
+- **Testing**: ThousandEyes only (instant tests, templates, agent discovery)
+- **Remediation**: Meraki only (write operations + API discovery)
 
 ## WebSocket protocol
 
-**Client → Server**: `{ "type": "user_message", "content": "...", "session_id": "default" }`
+**Client → Server**:
+- `user_message` — `{ "type": "user_message", "content": "...", "session_id": "default" }`
+- `stop` — `{ "type": "stop" }`
+- `confirmation_response` — `{ "type": "confirmation_response", "approved": true|false, "session_id": "default" }`
 
 **Server → Client** (streamed events):
 - `agent_start` — `{ "agent": "discovery" }`
+- `agent_plan` — `{ "plan": ["discovery", "remediation"], "step": 0 }` (multi-agent plans only)
 - `tool_call` — `{ "tool": "getOrganizationNetworks", "source": "meraki", "status": "running"|"complete" }`
 - `text` — assistant text response (string)
 - `card` — card directive (full card JSON object)
+- `confirmation_request` — `{ "description": "...", "agent": "remediation" }` (remediation proposals)
 - `error` — `{ "message": "..." }`
 - `done` — query complete
 
@@ -141,21 +163,29 @@ Skills are markdown files in `backend/skills/` that guide agent behavior. Each s
 - **Presentation**: Which card types to output
 
 Skill-to-agent mapping (in `skills/loader.py`):
-- troubleshooting → `wireless_troubleshooting.md`, `wan_performance.md`
-- compliance → `config_audit.md`
-- security → `security_posture.md`
+- troubleshooting → `wireless_troubleshooting.md`, `wan_performance.md`, `client_troubleshooting.md`, `application_performance.md`
+- compliance → `config_audit.md`, `monitoring_compliance.md`
+- security → `security_posture.md`, `switch_port_security.md`, `wireless_security.md`
 - discovery → `network_inventory.md`
+- testing → `instant_testing.md`, `connectivity_validation.md`, `template_deployment.md`
+- remediation → `switch_port_remediation.md`, `ssid_remediation.md`, `firewall_remediation.md`
 
 ## Adding a new agent
 
-1. Create `backend/agents/<name>.py` with an async node function taking `AgentState`
-2. Add MCP tool access in `mcp_client/manager.py` → `get_tools_for_agent()`
-3. Create skill files in `backend/skills/` and register in `loader.py` → `AGENT_SKILLS`
-4. Register in `backend/agents/graph.py`:
+1. Create `backend/agents/<name>.py` with an async node function taking `AgentState` and `StreamWriter`
+2. Add tool allowlist in `mcp_client/manager.py` → `_<NAME>_TOOLS` set and register in `_AGENT_TOOL_ALLOWLIST`
+3. Create system prompt in `backend/prompts/<name>.md` (must include `{skills}` placeholder)
+4. Create skill files in `backend/skills/` and register in `loader.py` → `AGENT_SKILLS`
+5. Register in `backend/agents/graph.py`:
+   - Import the node function
    - `graph_builder.add_node("<name>", <name>_node)`
-   - `graph_builder.add_edge("<name>", "canvas")`
-   - Add to the orchestrator's conditional edges map
-5. Update orchestrator system prompt in `orchestrator.py` to route to the new agent
+   - Add to `_SPECIALISTS` list
+   - Add to orchestrator's and plan_router's conditional edges maps
+6. Update orchestrator system prompt in `prompts/orchestrator.md` to route to the new agent
+7. Add fast-route regex patterns in `orchestrator.py` → `_FAST_ROUTES`
+8. Add display name in `frontend/src/utils/formatters.ts` → `agentDisplayName`
+9. Add description in `frontend/src/components/chat/AgentIndicator.tsx` → `AGENT_DESCRIPTIONS`
+10. Ensure the node increments `plan_step` before returning (for multi-agent plan support)
 
 ## Adding a new card type
 
@@ -181,7 +211,7 @@ Meraki-specific vars (passed through to MCP subprocess): `MERAKI_API_KEY`, `MERA
 
 - **Backend**: Python 3.12+, FastAPI, LangGraph, LangChain-Anthropic, MCP SDK
 - **Frontend**: React 19, TypeScript, Vite, @xyflow/react, Recharts, Zustand, Tailwind CSS v4
-- **LLM**: Claude (model configured in `config.py` as `model_name`)
+- **LLM**: Claude (specialist agents use `model_name`, orchestrator uses `orchestrator_model_name` (Haiku), canvas uses `canvas_model_name` (Haiku) — all configured in `config.py`)
 - **Theme**: Dark (bg-gray-950, border-gray-800 palette)
 
 ## Key conventions
