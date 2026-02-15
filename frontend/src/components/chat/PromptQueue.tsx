@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { useQueueStore } from '../../store/queueSlice'
 
 export function PromptQueue() {
   const queue = useQueueStore((s) => s.queue)
   const cancelPrompt = useQueueStore((s) => s.cancelPrompt)
+  const [isExpanded, setIsExpanded] = useState(true)
 
   // Only show pending and processing items (not completed/cancelled/error)
   const activeQueue = queue.filter((p) => p.status === 'pending' || p.status === 'processing')
@@ -64,39 +66,55 @@ export function PromptQueue() {
 
   return (
     <div className="border-t border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
-      <div className="px-4 py-2 flex items-center gap-2 border-b border-gray-200 dark:border-gray-800">
-        <svg className="w-4 h-4 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <div
+        className="px-3 py-1.5 flex items-center gap-1.5 border-b border-gray-200 dark:border-gray-800 cursor-pointer hover:bg-gray-100/50 dark:hover:bg-gray-800/50 transition-colors"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <svg
+          className={`w-3 h-3 text-gray-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+        </svg>
+        <svg className="w-3 h-3 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />
         </svg>
-        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-          Prompt Queue
+        <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">
+          Queue
         </span>
         {pendingCount > 0 && (
-          <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-full">
+          <span className="px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded-full">
             {pendingCount} pending
           </span>
         )}
+        <span className="ml-auto text-[10px] text-gray-500 dark:text-gray-400">
+          {isExpanded ? 'click to collapse' : 'click to expand'}
+        </span>
       </div>
 
-      <div className="max-h-48 overflow-y-auto">
+      {isExpanded && (
+        <div className="max-h-32 overflow-y-auto">
         {activeQueue.map((item, index) => (
           <div
             key={item.id}
-            className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 last:border-b-0 hover:bg-gray-100/50 dark:hover:bg-gray-800/50 transition-colors"
+            className="px-3 py-1.5 border-b border-gray-200 dark:border-gray-800 last:border-b-0 hover:bg-gray-100/50 dark:hover:bg-gray-800/50 transition-colors"
           >
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 mt-0.5">
-                <span className="flex items-center justify-center w-5 h-5 text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-200 dark:bg-gray-700 rounded-full">
+            <div className="flex items-start gap-2">
+              <div className="flex-shrink-0">
+                <span className="flex items-center justify-center w-4 h-4 text-[10px] font-semibold text-gray-600 dark:text-gray-400 bg-gray-200 dark:bg-gray-700 rounded-full">
                   {index + 1}
                 </span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-900 dark:text-gray-100 line-clamp-2 leading-relaxed">
+                <p className="text-xs text-gray-900 dark:text-gray-100 line-clamp-1 leading-tight">
                   {item.prompt}
                 </p>
-                <div className="flex items-center gap-2 mt-1.5">
-                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium border rounded ${getStatusColor(item.status)}`}>
-                    {getStatusIcon(item.status)}
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] font-medium border rounded ${getStatusColor(item.status)}`}>
+                    <span className="scale-75">{getStatusIcon(item.status)}</span>
                     {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
                   </span>
                 </div>
@@ -104,10 +122,10 @@ export function PromptQueue() {
               {item.status === 'pending' && (
                 <button
                   onClick={() => cancelPrompt(item.id)}
-                  className="flex-shrink-0 p-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors"
+                  className="flex-shrink-0 p-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors"
                   title="Cancel prompt"
                 >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
                   </svg>
                 </button>
@@ -115,7 +133,8 @@ export function PromptQueue() {
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
