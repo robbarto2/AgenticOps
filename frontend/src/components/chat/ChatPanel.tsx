@@ -169,7 +169,7 @@ export function ChatPanel({ onHeaderMouseDown }: ChatPanelProps = {}) {
       <ConfirmationModal />
 
       {/* Prompt Queue */}
-      <PromptQueue />
+      <PromptQueue onStopProcessing={stopProcessing} />
 
       {/* Input */}
       <ChatInput onSend={sendMessage} onStop={stopProcessing} />

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useChatStore } from '../../store/chatSlice'
+import { useQueueStore } from '../../store/queueSlice'
 
 interface Props {
   onSend: (content: string) => void
@@ -9,6 +10,11 @@ interface Props {
 export function ChatInput({ onSend, onStop }: Props) {
   const [value, setValue] = useState('')
   const isProcessing = useChatStore((s) => s.isProcessing)
+  const queue = useQueueStore((s) => s.queue)
+
+  // Check if queue is visible (2+ items)
+  const activeQueue = queue.filter((p) => p.status === 'pending' || p.status === 'processing')
+  const queueVisible = activeQueue.length > 1
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim()
@@ -41,7 +47,7 @@ export function ChatInput({ onSend, onStop }: Props) {
           className="flex-1 resize-none bg-gray-100 dark:bg-[#141c2b] border border-gray-300 dark:border-[#263045] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-200 placeholder:text-gray-500 dark:placeholder:text-gray-500 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/25 transition-colors"
           disabled={false}
         />
-        {isProcessing ? (
+        {isProcessing && !queueVisible ? (
           <button
             onClick={onStop}
             className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm font-medium rounded-lg transition-colors"
@@ -51,7 +57,7 @@ export function ChatInput({ onSend, onStop }: Props) {
         ) : (
           <button
             onClick={handleSubmit}
-            disabled={!value.trim()}
+            disabled={!value.trim() || isProcessing}
             className="px-4 py-2 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:text-gray-500 dark:disabled:text-gray-500 text-white text-sm font-medium rounded-lg transition-colors"
           >
             Send

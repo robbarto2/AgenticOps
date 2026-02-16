@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { useQueueStore } from '../../store/queueSlice'
 
-export function PromptQueue() {
+interface Props {
+  onStopProcessing?: () => void
+}
+
+export function PromptQueue({ onStopProcessing }: Props) {
   const queue = useQueueStore((s) => s.queue)
   const cancelPrompt = useQueueStore((s) => s.cancelPrompt)
   const [isExpanded, setIsExpanded] = useState(true)
@@ -119,11 +123,17 @@ export function PromptQueue() {
                   </span>
                 </div>
               </div>
-              {item.status === 'pending' && (
+              {(item.status === 'pending' || item.status === 'processing') && (
                 <button
-                  onClick={() => cancelPrompt(item.id)}
+                  onClick={() => {
+                    if (item.status === 'processing' && onStopProcessing) {
+                      onStopProcessing()
+                    } else {
+                      cancelPrompt(item.id)
+                    }
+                  }}
                   className="flex-shrink-0 p-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors"
-                  title="Cancel prompt"
+                  title={item.status === 'processing' ? 'Stop processing' : 'Cancel prompt'}
                 >
                   <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
