@@ -421,6 +421,17 @@ _REMEDIATION_TOOLS = {
     "getDeviceSwitchPorts",
 }
 
+_TOPOLOGY_TOOLS = {
+    # Meraki - topology discovery
+    "getOrganizationNetworks",
+    "getNetworkDevices",
+    "getDevice",
+    "getOrganizationDevicesUplinksAddressesByDevice",
+    "call_meraki_api",  # For LLDP/CDP: GET /devices/{serial}/lldpCdp
+    "search_methods",
+    "get_method_info",
+}
+
 _AGENT_TOOL_ALLOWLIST: dict[str, set[str]] = {
     "discovery": _DISCOVERY_TOOLS,
     "troubleshooting": _TROUBLESHOOTING_TOOLS,
@@ -428,6 +439,7 @@ _AGENT_TOOL_ALLOWLIST: dict[str, set[str]] = {
     "compliance": _COMPLIANCE_TOOLS,
     "testing": _TESTING_TOOLS,
     "remediation": _REMEDIATION_TOOLS,
+    "topology": _TOPOLOGY_TOOLS,
 }
 
 

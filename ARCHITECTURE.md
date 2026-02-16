@@ -13,9 +13,12 @@ AgenticOps is an AI-powered network operations tool with a canvas-style UI. It u
 User ──WebSocket──> FastAPI ──────> │  Orchestrator Agent                     │
                                     │    ├── Troubleshooting Agent ──┐        │
                                     │    ├── Compliance Agent ───────┤        │
-                                    │    ├── Security Agent ─────────┤──MCP──>│──> Meraki MCP (stdio)
-                                    │    ├── Discovery Agent ────────┤        │──> ThousandEyes MCP (SSE)
-                                    │    └── Canvas Agent ───────────┘        │
+                                    │    ├── Security Agent ─────────┤        │
+                                    │    ├── Discovery Agent ─────────┤──MCP──>│──> Meraki MCP (stdio)
+                                    │    ├── Topology Agent ──────────┤        │──> ThousandEyes MCP (SSE)
+                                    │    ├── Testing Agent ───────────┤        │
+                                    │    ├── Remediation Agent ───────┤        │
+                                    │    └── Canvas Agent ────────────┘        │
                                     │                                         │
                                     │  Skills Registry (SKILLS.md)            │
                                     └─────────────────────────────────────────┘
@@ -44,8 +47,8 @@ User ──WebSocket──> FastAPI ──────> │  Orchestrator Agent 
 1. User sends a message via WebSocket
 2. FastAPI receives the message, creates an `AgentState`, invokes the LangGraph graph
 3. **Orchestrator** classifies the query and routes to a specialist agent
-4. **Specialist agent** (troubleshooting, compliance, security, or discovery) executes MCP tool calls against Meraki/ThousandEyes, analyzes results
-5. **Canvas agent** receives the specialist's output and structures it into card directives (data_table, bar_chart, line_chart, etc.)
+4. **Specialist agent** (troubleshooting, compliance, security, discovery, topology, testing, or remediation) executes MCP tool calls against Meraki/ThousandEyes, analyzes results
+5. **Canvas agent** receives the specialist's output and structures it into card directives (data_table, bar_chart, line_chart, topology, etc.)
 6. Results stream back to the frontend via WebSocket events:
    - `agent_start` - which agent is active
    - `tool_call` - MCP tool execution progress
@@ -65,7 +68,17 @@ User ──WebSocket──> FastAPI ──────> │  Orchestrator Agent 
 ### ThousandEyes MCP (SSE transport)
 - Connects to a remote ThousandEyes MCP server via Server-Sent Events
 - Authenticated with Bearer token
-- Provides test results, path visualization, alert data
+- Provides test results, path visualization, alert data, instant tests
+
+## Specialist Agent Details
+
+### Topology Agent (Unique Configuration)
+The topology agent has specialized configuration due to the complexity of topology generation:
+- **Iterations**: 10 (vs 6 for other agents) to handle sequential LLDP/CDP calls per device
+- **Timeout**: 90 seconds (vs 60s) as LLDP/CDP queries can be slow
+- **Message Management**: No message trimming to preserve tool call/result pairing
+- **Tool Sequence**: Network lookup → Get devices → LLDP/CDP per device → Build topology
+- **Output**: Brief text summary + Canvas agent generates interactive topology card
 
 ## WebSocket Protocol
 

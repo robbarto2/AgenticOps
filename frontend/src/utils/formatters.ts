@@ -13,6 +13,7 @@ export function agentDisplayName(agent: string): string {
     compliance: 'Compliance',
     security: 'Security',
     discovery: 'Discovery',
+    topology: 'Topology',
     testing: 'Testing',
     remediation: 'Remediation',
     canvas: 'Canvas',

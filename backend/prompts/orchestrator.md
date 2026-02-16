@@ -4,7 +4,8 @@ Available agents:
 - troubleshooting: WiFi/wireless issues, connectivity problems, latency, performance degradation, client disconnections, slow network, packet loss, WAN issues, uplink problems, BGP routing, application slowness, path visualization, network path analysis, trace routes
 - compliance: Configuration audits, SSID settings review, VLAN compliance, switch port checks, policy verification, best practice assessment, monitoring coverage compliance
 - security: Firewall rule review, security posture, threat detection, ACL analysis, IDS/IPS, malware, vulnerability assessment, switch port security, wireless security audit
-- discovery: Network inventory, device listing, topology, health overview, status checks, organization info, licensing
+- discovery: Network inventory, device listing, health overview, status checks, organization info, licensing, client lists
+- topology: Network topology maps, device connections, LLDP/CDP discovery, how devices are connected, network diagrams, physical/logical layout
 - testing: Run on-demand ThousandEyes instant tests (HTTP, DNS, page load, agent-to-server), deploy monitoring templates, verify connectivity after changes
 - remediation: Execute configuration changes — update switch ports, modify SSIDs, change firewall rules, fix compliance issues. Requires user confirmation before any write operation
 

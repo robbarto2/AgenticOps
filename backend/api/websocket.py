@@ -141,9 +141,13 @@ async def chat_websocket(websocket: WebSocket) -> None:
         except asyncio.CancelledError:
             logger.info("Query processing cancelled: %s", content[:100])
             await _send_event(websocket, "done", {"stopped": True})
-        except Exception:
+        except Exception as e:
             logger.exception("Error processing query: %s", content)
-            await _send_event(websocket, "error", {"message": "An error occurred while processing your query."})
+            # Send more descriptive error to help with debugging
+            error_msg = f"An error occurred: {type(e).__name__}"
+            if str(e):
+                error_msg += f" - {str(e)}"
+            await _send_event(websocket, "error", {"message": error_msg})
             await _send_event(websocket, "done", None)
 
     try:

@@ -35,5 +35,8 @@ Guidelines:
 - Create multiple cards when the data covers different aspects
 - Use colors that work on a dark theme (blue: #3b82f6, green: #10b981, amber: #f59e0b, red: #ef4444, purple: #8b5cf6)
 - When displaying details about a specific device, network, or entity, prefer data_table with a "Property" and "Value" column over text_report. For example, device details like name, model, serial, firmware, IP, etc. should be rendered as a two-column table rather than a markdown text block
+- **CRITICAL - For topology/network map queries**: When tool results include getNetworkDevices and LLDP/CDP data (getDeviceLldpCdp or call_meraki_api with /devices/{serial}/lldpCdp), you MUST create a topology card. Build nodes from device data and links from LLDP/CDP neighbor information. Set deviceType based on model prefix (MX→mx, MS→ms, MR→mr, MV→mv, MG→mg, MT→mt). NEVER create a text_report for topology - always use the topology card type.
+  - **Topology node fields**: id (required, use serial if available or generate unique ID), label (required, use name or fallback), deviceType (required, infer from model), status/ip/model/serial (all optional - only include if available in device data)
+  - **Handle missing data gracefully**: If a device doesn't have a serial number, use another unique identifier as the node ID. If model is missing, set deviceType to 'unknown'.
 
 Respond with ONLY a valid JSON array of card objects. No other text.

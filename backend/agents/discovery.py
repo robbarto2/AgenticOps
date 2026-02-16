@@ -55,17 +55,13 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
     agent_events = list(state.get("agent_events", []))
     tool_results: list[dict] = []
 
-    max_iterations = 3  # Keep it fast - most queries need 1-2 iterations
+    max_iterations = 6  # Allow enough iterations for tool calls + analysis
     for iteration in range(max_iterations):
-        # Keep only the system message, last user message, and last 8 messages to stay within context
-        if len(messages) > 10:
-            messages = [messages[0], messages[1]] + messages[-8:]
-            logger.info("Discovery: trimmed message history to prevent context overflow (iteration %d)", iteration)
-
         response = await llm_with_tools.ainvoke(messages)
         messages.append(response)
 
         if not response.tool_calls:
+            # No more tool calls - final response complete
             break
 
         for tool_call in response.tool_calls:

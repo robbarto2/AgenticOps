@@ -23,7 +23,8 @@ AgenticOps/
 │   │   ├── troubleshooting.py    # WiFi, WAN, performance, client, app diagnosis
 │   │   ├── compliance.py         # Config audit, policy checks, monitoring compliance
 │   │   ├── security.py           # Firewall, threat, switch port, wireless security
-│   │   ├── discovery.py          # Inventory, health, topology
+│   │   ├── discovery.py          # Inventory, health, device/client listing
+│   │   ├── topology.py           # Network topology maps, LLDP/CDP discovery
 │   │   ├── testing.py            # On-demand ThousandEyes instant tests
 │   │   ├── remediation.py        # Write operations with user confirmation
 │   │   ├── canvas_agent.py       # Structures results into card JSON (Haiku model)
@@ -102,9 +103,10 @@ Multi-agent plans (compound queries):
 Orchestrator → Specialist₁ → Plan Router → Specialist₂ → Plan Router → Canvas → END
 ```
 
-- **Orchestrator**: Classifies query, returns one or more of: `troubleshooting`, `compliance`, `security`, `discovery`, `testing`, `remediation`
+- **Orchestrator**: Classifies query, returns one or more of: `troubleshooting`, `compliance`, `security`, `discovery`, `topology`, `testing`, `remediation`
 - **Plan Router**: Pure-logic node (no LLM call) that dispatches to the next agent in the plan sequence
-- **Specialist agents**: Call MCP tools via agentic loop (up to 10 iterations), collect tool_results, increment plan_step
+- **Specialist agents**: Call MCP tools via agentic loop (up to 6-10 iterations), collect tool_results, increment plan_step
+- **Topology agent**: Builds network topology maps from LLDP/CDP data (10 iterations, 90-second timeout for multiple device queries)
 - **Testing agent**: Runs on-demand ThousandEyes instant tests (HTTP, DNS, page load, etc.)
 - **Remediation agent**: Executes write operations with mandatory user confirmation before changes
 - **Canvas agent**: Transforms tool_results into card directives (JSON array of card objects, uses Haiku model)
@@ -120,7 +122,8 @@ Tool access by agent:
 - **Troubleshooting**: Meraki + ThousandEyes (including BGP, events, outages)
 - **Compliance**: Meraki + ThousandEyes (monitoring compliance)
 - **Security**: Meraki + ThousandEyes (including switch port, wireless audit)
-- **Discovery**: Meraki + ThousandEyes
+- **Discovery**: Meraki + ThousandEyes (inventory, devices, clients, networks)
+- **Topology**: Meraki only (devices, LLDP/CDP, uplinks)
 - **Testing**: ThousandEyes only (instant tests, templates, agent discovery)
 - **Remediation**: Meraki only (write operations + API discovery)
 
@@ -151,6 +154,7 @@ Tool access by agent:
 | `alert_summary` | `{ alerts: [{severity, title, description, timestamp?}] }` | Severity-colored list |
 | `text_report` | `{ content: string }` | Markdown rendered |
 | `network_health` | `{ metrics: [{label, value, status, icon?}] }` | Metric tiles |
+| `topology` | `{ nodes: [{id, label, deviceType, status, ip, model, serial}], links: [{source, target, linkType, label, speed}], networkName }` | Interactive SVG network diagram |
 
 Every card has: `id`, `type`, `title`, `source` ("meraki" or "thousandeyes"), and a `data` object matching its type.
 
@@ -166,7 +170,8 @@ Skill-to-agent mapping (in `skills/loader.py`):
 - troubleshooting → `wireless_troubleshooting.md`, `wan_performance.md`, `client_troubleshooting.md`, `application_performance.md`
 - compliance → `config_audit.md`, `monitoring_compliance.md`
 - security → `security_posture.md`, `switch_port_security.md`, `wireless_security.md`
-- discovery → `network_inventory.md`
+- discovery → `network_inventory.md`, `organizational_summary.md`
+- topology → `network_topology.md`
 - testing → `instant_testing.md`, `connectivity_validation.md`, `template_deployment.md`
 - remediation → `switch_port_remediation.md`, `ssid_remediation.md`, `firewall_remediation.md`
 

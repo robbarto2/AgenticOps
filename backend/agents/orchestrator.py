@@ -19,8 +19,8 @@ ORCHESTRATOR_SYSTEM_PROMPT = load_prompt("orchestrator")
 # Patterns that indicate the user wants visual cards on the canvas
 _CARD_PATTERNS = re.compile(
     r"\b("
-    r"card|cards|canvas|chart|graph|plot|visuali[zs]e|diagram|dashboard"
-    r"|show\s+(me\s+)?(a\s+)?(table|chart|graph|plot|card|visual)"
+    r"card|cards|canvas|chart|graph|plot|visuali[zs]e|diagram|dashboard|topology"
+    r"|show\s+(me\s+)?(a\s+)?(table|chart|graph|plot|card|visual|topology)"
     r"|display\s+(as|in|on)\s+(a\s+)?(card|chart|table|canvas)"
     r"|put\s+(this|that|it)\s+(in|on|as)\s+(a\s+)?(card|canvas)"
     r"|add\s+(to|on)\s+(the\s+)?canvas"
@@ -54,6 +54,8 @@ _AFFIRMATIVE_RE = re.compile(
 _FAST_ROUTES: list[tuple[re.Pattern, str]] = [
     # Testing agent — must match before troubleshooting (both mention "connectivity")
     (re.compile(r"\b(run\s+(a\s+)?test|instant\s+test|page\s+load\s+test|dns\s+test|http\s+test|test\s+connectivity|deploy\s+template|rerun\s+test)\b", re.IGNORECASE), "testing"),
+    # Topology agent — network topology/map queries (must come before discovery)
+    (re.compile(r"\b(topology|network\s+(map|diagram|layout)|show\s+(me\s+)?(the\s+)?(connections?|topology)|device\s+connections?|how\s+(are\s+)?devices?\s+connected)\b", re.IGNORECASE), "topology"),
     # Troubleshooting agent — must come early to catch explicit troubleshooting requests
     (re.compile(r"\b(troubleshoot|diagnose|debug|investigate|trace|traceroute|path\s+visuali[zs]ation)\b", re.IGNORECASE), "troubleshooting"),
     # Remediation agent — write/change operations
@@ -61,7 +63,7 @@ _FAST_ROUTES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(port|ssid|vlan|firewall|rule)\b.*\b(fix|change|update|set|modify|disable|enable|configure|remediate|close|block)\b", re.IGNORECASE), "remediation"),
     # Discovery agent — listing/inventory queries
     (re.compile(r"\b(list|show|get|what|display).*(network|site|device|ap|access\s+point|switch|appliance|camera|sensor|client|ssid)s?\b", re.IGNORECASE), "discovery"),
-    (re.compile(r"\b(inventory|topology|health|overview|status|organization)\b", re.IGNORECASE), "discovery"),
+    (re.compile(r"\b(inventory|health|overview|status|organization)\b", re.IGNORECASE), "discovery"),
     # Troubleshooting agent — problem indicators (checked after explicit troubleshooting keywords)
     (re.compile(r"\b(slow|issue|problem|not\s+working|can'?t|won'?t|fail|error|down|offline|disconnect|latency|packet.?loss|degraded|poor)\b", re.IGNORECASE), "troubleshooting"),
     # Security and compliance
@@ -134,7 +136,7 @@ async def orchestrator_node(state: AgentState) -> dict:
 
         # Parse multi-agent plan (comma-separated) or single agent
         parts = [p.strip() for p in raw.split(",") if p.strip()]
-        valid_agents = {"troubleshooting", "compliance", "security", "discovery", "testing", "remediation"}
+        valid_agents = {"troubleshooting", "compliance", "security", "discovery", "testing", "remediation", "topology"}
         parts = [p for p in parts if p in valid_agents]
 
         if not parts:

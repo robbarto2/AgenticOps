@@ -12,6 +12,7 @@ from agents.remediation import remediation_node
 from agents.security import security_node
 from agents.state import AgentState
 from agents.testing import testing_node
+from agents.topology import topology_node
 from agents.troubleshooting import troubleshooting_node
 
 
@@ -69,7 +70,7 @@ def _plan_router_node(state: AgentState) -> dict:
 # All specialist agent names
 _SPECIALISTS = [
     "troubleshooting", "compliance", "security", "discovery",
-    "testing", "remediation",
+    "testing", "remediation", "topology",
 ]
 
 # Build the multi-agent graph
@@ -84,6 +85,7 @@ graph_builder.add_node("security", security_node)
 graph_builder.add_node("discovery", discovery_node)
 graph_builder.add_node("testing", testing_node)
 graph_builder.add_node("remediation", remediation_node)
+graph_builder.add_node("topology", topology_node)
 graph_builder.add_node("canvas", canvas_node)
 
 # Entry point
@@ -100,6 +102,7 @@ graph_builder.add_conditional_edges(
         "discovery": "discovery",
         "testing": "testing",
         "remediation": "remediation",
+        "topology": "topology",
         "canvas": "canvas",
     },
 )
@@ -123,6 +126,7 @@ graph_builder.add_conditional_edges(
         "discovery": "discovery",
         "testing": "testing",
         "remediation": "remediation",
+        "topology": "topology",
         "canvas": "canvas",
         "__end__": END,
     },

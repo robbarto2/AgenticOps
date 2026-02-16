@@ -6,6 +6,7 @@ import { agentDisplayName } from '../../utils/formatters'
 const AGENT_DESCRIPTIONS: Record<string, string> = {
   orchestrator: 'Analyzing your query...',
   discovery: 'Discovering network inventory...',
+  topology: 'Building network topology map...',
   troubleshooting: 'Diagnosing network issues...',
   security: 'Assessing security posture...',
   compliance: 'Auditing configurations...',
