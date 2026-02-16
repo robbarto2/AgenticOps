@@ -93,6 +93,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       if (card.type === 'access_point_detail') {
         defaultHeight = 480
       }
+      // Network detail cards need more height for stats and metadata
+      if (card.type === 'network_detail') {
+        defaultHeight = 500
+      }
 
       const newNode: Node = {
         id: card.id,

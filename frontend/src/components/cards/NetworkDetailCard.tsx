@@ -11,6 +11,11 @@ export function NetworkDetailCard({ data }: Props) {
   const anchorRef = useRef<HTMLButtonElement | null>(null)
   const [liveStats, setLiveStats] = useState(data.stats)
 
+  // Check if this network has wireless products (MR or CW)
+  const hasWireless = data.productTypes?.some(pt =>
+    pt.toUpperCase().startsWith('MR') || pt.toUpperCase().startsWith('CW') || pt.toLowerCase().includes('wireless')
+  ) ?? false
+
   // Fetch live stats on mount
   useEffect(() => {
     let cancelled = false
@@ -105,7 +110,7 @@ export function NetworkDetailCard({ data }: Props) {
       {/* Live Stats */}
       <div>
         <span className="text-sm font-medium text-gray-600 dark:text-gray-500 mb-2 block">Live Stats</span>
-        <div className="grid grid-cols-3 gap-3">
+        <div className={`grid gap-3 ${hasWireless ? 'grid-cols-3' : 'grid-cols-2'}`}>
           <button
             onClick={(e) => handleStatClick('devices', e.currentTarget)}
             className="text-center p-3 bg-gray-100 dark:bg-gray-800/50 rounded cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
@@ -120,13 +125,15 @@ export function NetworkDetailCard({ data }: Props) {
             <p className="text-2xl font-semibold text-gray-900 dark:text-gray-200">{liveStats.clientCount}</p>
             <p className="text-sm text-gray-600 dark:text-gray-500 mt-1">Clients</p>
           </button>
-          <button
-            onClick={(e) => handleStatClick('ssids', e.currentTarget)}
-            className="text-center p-3 bg-gray-100 dark:bg-gray-800/50 rounded cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
-          >
-            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-200">{liveStats.ssidCount}</p>
-            <p className="text-sm text-gray-600 dark:text-gray-500 mt-1">SSIDs</p>
-          </button>
+          {hasWireless && (
+            <button
+              onClick={(e) => handleStatClick('ssids', e.currentTarget)}
+              className="text-center p-3 bg-gray-100 dark:bg-gray-800/50 rounded cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
+            >
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-200">{liveStats.ssidCount}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-500 mt-1">SSIDs</p>
+            </button>
+          )}
         </div>
       </div>
 
