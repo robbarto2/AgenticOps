@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -18,6 +19,9 @@ from prompts import load_prompt
 from skills.loader import load_skills_for_agent
 
 logger = logging.getLogger(__name__)
+
+# Timeout for individual tool calls (60 seconds)
+TOOL_CALL_TIMEOUT_SEC = 60
 
 SYSTEM_PROMPT_TEMPLATE = load_prompt("discovery")
 
@@ -82,7 +86,14 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
 
             matching_tools = [t for t in tools if t.name == tool_name]
             if matching_tools:
-                result = await matching_tools[0].ainvoke(tool_args)
+                try:
+                    result = await asyncio.wait_for(
+                        matching_tools[0].ainvoke(tool_args),
+                        timeout=TOOL_CALL_TIMEOUT_SEC
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("Tool call timeout: %s(%s) exceeded %d seconds", tool_name, tool_args, TOOL_CALL_TIMEOUT_SEC)
+                    result = f"Error: Tool call timed out after {TOOL_CALL_TIMEOUT_SEC} seconds"
             else:
                 result = f"Tool {tool_name} not found"
 
