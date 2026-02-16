@@ -212,6 +212,8 @@ export function useChat() {
       setPromptStatus(processingPromptIdRef.current, 'cancelled')
       processingPromptIdRef.current = null
     }
+    // Cancel all pending prompts in the queue
+    useQueueStore.getState().cancelAllPending()
   }, [wsStop, setProcessing, setActiveAgent, clearToolCalls, setPromptStatus])
 
   // Cleanup timeout on unmount

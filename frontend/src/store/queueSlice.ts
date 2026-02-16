@@ -16,6 +16,7 @@ interface QueueState {
   addPrompt: (prompt: string) => string
   removePrompt: (id: string) => void
   cancelPrompt: (id: string) => void
+  cancelAllPending: () => void
   setPromptStatus: (id: string, status: QueuedPrompt['status']) => void
   getNextPending: () => QueuedPrompt | null
   clearCompleted: () => void
@@ -49,6 +50,14 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     set((state) => ({
       queue: state.queue.map((p) =>
         p.id === id ? { ...p, status: 'cancelled' as const } : p
+      ),
+    }))
+  },
+
+  cancelAllPending: () => {
+    set((state) => ({
+      queue: state.queue.map((p) =>
+        p.status === 'pending' ? { ...p, status: 'cancelled' as const, completedAt: Date.now() } : p
       ),
     }))
   },
