@@ -317,6 +317,18 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
     network_map = _extract_network_map(tool_results)
     filter_network_id = _detect_network_filter(user_query, network_map)
 
+    # Detect if user is asking for devices with specific status
+    filter_status = None
+    if any(term in query_lower for term in ["offline", "down", "not online", "disconnected"]):
+        filter_status = ["offline", "dormant"]
+        logger.info("extract_device_table: detected filter for offline/dormant devices")
+    elif "online" in query_lower and "not online" not in query_lower:
+        filter_status = ["online"]
+        logger.info("extract_device_table: detected filter for online devices")
+    elif "alerting" in query_lower:
+        filter_status = ["alerting"]
+        logger.info("extract_device_table: detected filter for alerting devices")
+
     for result in tool_results:
         tool_name = result.get("tool", "")
 
@@ -368,6 +380,7 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
         rows = []
         filtered_count = 0
         network_filtered_count = 0
+        status_filtered_count = 0
         for dev in devices:
             if not isinstance(dev, dict):
                 continue
@@ -376,6 +389,9 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
             name = dev.get("name", "") or serial
             model = dev.get("model", "")
             network_id = dev.get("networkId", "")
+
+            # Extract status early for filtering
+            status = dev.get("status", "")
 
             # Apply device type filter if specified
             if filter_types and not _should_filter_device(model, filter_types):
@@ -387,8 +403,12 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
                 network_filtered_count += 1
                 continue
 
+            # Apply status filter if specified
+            if filter_status and status.lower() not in filter_status:
+                status_filtered_count += 1
+                continue
+
             lan_ip = dev.get("lanIp", "") or dev.get("ip", "")
-            status = dev.get("status", "")
             firmware = dev.get("firmware", "")
             tags = dev.get("tags", [])
             notes = dev.get("notes", "")
@@ -439,6 +459,8 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
                 logger.info("extract_device_table: filtered out %d devices (not matching requested types)", filtered_count)
             if network_filtered_count > 0:
                 logger.info("extract_device_table: filtered out %d devices (not in target network)", network_filtered_count)
+            if status_filtered_count > 0:
+                logger.info("extract_device_table: filtered out %d devices (not matching requested status)", status_filtered_count)
             table = {
                 "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
                 "entity_type": "device",
