@@ -99,7 +99,7 @@ function CardNodeInner({ data, selected }: NodeProps) {
         handleStyle={{ backgroundColor: '#3b82f6', width: 8, height: 8 }}
       />
       <div
-        className="bg-white dark:bg-gray-900 border-2 rounded-lg shadow-xl overflow-hidden w-full h-full flex flex-col"
+        className="bg-white dark:bg-gray-900 border-[3px] rounded-lg shadow-xl overflow-hidden w-full h-full flex flex-col"
         style={{ borderColor: accent }}
       >
         <CardHeader
