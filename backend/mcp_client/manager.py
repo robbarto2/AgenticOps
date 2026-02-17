@@ -304,6 +304,7 @@ _DISCOVERY_TOOLS = {
     "getNetwork",
     "getNetworkDevices",
     "getNetworkClients",
+    "getNetworkEvents",
     "getNetworkWirelessSsids",
     "getDevice",
     "call_meraki_api",

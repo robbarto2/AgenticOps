@@ -702,16 +702,25 @@ def extract_client_table(tool_results: list[dict]) -> list[dict]:
             # SSID for wireless clients
             ssid = client.get("ssid", "")
 
+            # Determine status type for row coloring
+            status_type = "normal"
+            if status and status.lower() in ["offline"]:
+                status_type = "error"
+
+            # Determine connection type from SSID presence
+            connection = "Wireless" if ssid else "Wired"
+
             rows.append({
                 "id": mac,  # Use MAC as unique ID
                 "cells": [
                     description or mac,  # Description/Hostname
                     mac,  # MAC Address
                     ip,  # IP Address
-                    vlan or "-",  # VLAN
-                    ssid or "-",  # SSID (if wireless)
+                    connection,  # Connection type
+                    status or "Online",  # Status
                     manufacturer or "-",  # Manufacturer
                 ],
+                "status_type": status_type,
                 "metadata": {
                     "description": description,
                     "mac": mac,
@@ -738,7 +747,7 @@ def extract_client_table(tool_results: list[dict]) -> list[dict]:
                 "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
                 "entity_type": "client",
                 "source": "meraki",
-                "columns": ["Description", "MAC Address", "IP Address", "VLAN", "SSID", "Manufacturer"],
+                "columns": ["Description", "MAC Address", "IP Address", "Connection", "Status", "Manufacturer"],
                 "rows": rows,
             }
             tables.append(table)

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef, useCallback } from 'react'
 import dagre from 'dagre'
 import type { TopologyCard as TopologyCardType, TopologyDeviceType, TopologyNode, TopologyLink } from '../../types/card'
 import { useThemeStore } from '../../store/themeSlice'
@@ -7,11 +7,11 @@ interface Props {
   data: TopologyCardType['data']
 }
 
-const NODE_WIDTH = 120
-const NODE_HEIGHT = 72
-const PADDING = 40
+const NODE_WIDTH = 140
+const NODE_HEIGHT = 90
+const PADDING = 60
 
-// Device icon SVG paths (rendered at 24x24)
+// Device icon SVG paths (rendered at 28x28 for better visibility)
 function DeviceIcon({ type, color }: { type: TopologyDeviceType; color: string }) {
   switch (type) {
     case 'mx': // Shield — security appliance
@@ -61,12 +61,24 @@ function DeviceIcon({ type, color }: { type: TopologyDeviceType; color: string }
           <path d="M12 2a6 6 0 00-6 6c0 4.5 6 10 6 10s6-5.5 6-10a6 6 0 00-6-6zm0 8a2 2 0 110-4 2 2 0 010 4z" />
         </g>
       )
-    case 'internet': // Cloud
+    case 'internet': // Cloud with glow
       return (
-        <path
-          d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"
-          fill={color}
-        />
+        <g>
+          <defs>
+            <filter id="glow">
+              <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+              <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+          <path
+            d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"
+            fill={color}
+            filter="url(#glow)"
+          />
+        </g>
       )
     case 'client': // Laptop
       return (
@@ -99,14 +111,14 @@ function statusColor(status?: string): string {
 function linkStyle(linkType?: string): { stroke: string; dasharray: string; width: number } {
   switch (linkType) {
     case 'wireless':
-      return { stroke: '#3b82f6', dasharray: '6 3', width: 1.5 }
+      return { stroke: '#3b82f6', dasharray: '8 4', width: 2 }
     case 'wan':
-      return { stroke: '#8b5cf6', dasharray: '', width: 2.5 }
+      return { stroke: '#8b5cf6', dasharray: '', width: 3 }
     case 'vpn':
-      return { stroke: '#10b981', dasharray: '3 3', width: 1.5 }
+      return { stroke: '#10b981', dasharray: '4 4', width: 2 }
     case 'wired':
     default:
-      return { stroke: '#6b7280', dasharray: '', width: 1.5 }
+      return { stroke: '#6b7280', dasharray: '', width: 2 }
   }
 }
 
@@ -126,12 +138,46 @@ interface LayoutLink {
 export function TopologyCard({ data }: Props) {
   const isDark = useThemeStore((s) => s.mode === 'dark')
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [isPanning, setIsPanning] = useState(false)
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 })
 
-  const { layoutNodes, layoutLinks, width, height } = useMemo(() => {
+  const { layoutNodes, layoutLinks, width, height, hasInternet } = useMemo(() => {
+    // Check if we have any MX devices
+    const hasMX = data.nodes.some((n) => n.deviceType === 'mx')
+    const hasInternetNode = data.nodes.some((n) => n.deviceType === 'internet')
+
+    // Add Internet node if we have MX but no Internet node yet
+    const nodes = hasInternetNode || !hasMX ? [...data.nodes] : [
+      ...data.nodes,
+      {
+        id: 'internet-node',
+        label: 'Internet',
+        deviceType: 'internet' as TopologyDeviceType,
+        status: 'online' as const,
+      }
+    ]
+
+    // Add WAN links from MX devices to Internet (swap source/target so Internet is at top)
+    const links = [...data.links]
+    if (!hasInternetNode && hasMX) {
+      const mxDevices = data.nodes.filter((n) => n.deviceType === 'mx')
+      for (const mx of mxDevices) {
+        links.push({
+          source: 'internet-node', // Internet as source (top)
+          target: mx.id,            // MX as target (below)
+          linkType: 'wan',
+          label: 'WAN',
+        })
+      }
+    }
+
     // Deduplicate links (LLDP/CDP reports both directions)
     const seenLinks = new Set<string>()
     const dedupedLinks: TopologyLink[] = []
-    for (const link of data.links) {
+    for (const link of links) {
       const key1 = `${link.source}::${link.target}`
       const key2 = `${link.target}::${link.source}`
       if (!seenLinks.has(key1) && !seenLinks.has(key2)) {
@@ -141,12 +187,19 @@ export function TopologyCard({ data }: Props) {
     }
 
     const g = new dagre.graphlib.Graph()
-    g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 80, marginx: PADDING, marginy: PADDING })
+    g.setGraph({ rankdir: 'TB', nodesep: 80, ranksep: 100, marginx: PADDING, marginy: PADDING })
     g.setDefaultEdgeLabel(() => ({}))
 
-    for (const node of data.nodes) {
-      g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT })
+    // Add nodes with rank hints (Internet at top)
+    for (const node of nodes) {
+      const config: any = { width: NODE_WIDTH, height: NODE_HEIGHT }
+      // Force Internet node to rank 0 (top of hierarchy)
+      if (node.deviceType === 'internet') {
+        config.rank = 0
+      }
+      g.setNode(node.id, config)
     }
+
     for (const link of dedupedLinks) {
       if (g.hasNode(link.source) && g.hasNode(link.target)) {
         g.setEdge(link.source, link.target)
@@ -155,24 +208,24 @@ export function TopologyCard({ data }: Props) {
 
     dagre.layout(g)
 
-    const nodeMap = new Map<string, TopologyNode>(data.nodes.map((n) => [n.id, n]))
-    const nodes: LayoutNode[] = []
+    const nodeMap = new Map<string, TopologyNode>(nodes.map((n) => [n.id, n]))
+    const layoutNodes: LayoutNode[] = []
     const graphNodes = g.nodes()
     for (const id of graphNodes) {
       const pos = g.node(id)
       const orig = nodeMap.get(id)
       if (pos && orig) {
-        nodes.push({ id, x: pos.x, y: pos.y, node: orig })
+        layoutNodes.push({ id, x: pos.x, y: pos.y, node: orig })
       }
     }
 
-    const layoutNodeMap = new Map<string, LayoutNode>(nodes.map((n) => [n.id, n]))
-    const links: LayoutLink[] = []
+    const layoutNodeMap = new Map<string, LayoutNode>(layoutNodes.map((n) => [n.id, n]))
+    const layoutLinks: LayoutLink[] = []
     for (const link of dedupedLinks) {
       const s = layoutNodeMap.get(link.source)
       const t = layoutNodeMap.get(link.target)
       if (s && t) {
-        links.push({ source: s, target: t, link })
+        layoutLinks.push({ source: s, target: t, link })
       }
     }
 
@@ -180,161 +233,366 @@ export function TopologyCard({ data }: Props) {
     const w = (graph.width ?? 400) + PADDING * 2
     const h = (graph.height ?? 300) + PADDING * 2
 
-    return { layoutNodes: nodes, layoutLinks: links, width: w, height: h }
+    return { layoutNodes, layoutLinks, width: w, height: h, hasInternet: hasMX }
   }, [data.nodes, data.links])
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault()
+    const delta = e.deltaY > 0 ? 0.9 : 1.1
+    setZoom((z) => Math.max(0.3, Math.min(3, z * delta)))
+  }, [])
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    setIsPanning(true)
+    setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
+  }, [pan])
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isPanning) {
+      setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y })
+    }
+  }, [isPanning, panStart])
+
+  const handleMouseUp = useCallback(() => {
+    setIsPanning(false)
+  }, [])
+
+  const resetView = useCallback(() => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+  }, [])
+
+  const autoFit = useCallback(() => {
+    if (!svgRef.current) return
+
+    const container = svgRef.current.parentElement
+    if (!container) return
+
+    const containerWidth = container.clientWidth
+    const containerHeight = container.clientHeight
+
+    // Calculate zoom to fit content
+    const zoomX = containerWidth / width
+    const zoomY = containerHeight / height
+    const newZoom = Math.min(zoomX, zoomY) * 0.9 // 90% to add padding
+
+    setZoom(Math.max(0.3, Math.min(3, newZoom)))
+    setPan({ x: 0, y: 0 })
+  }, [width, height])
 
   const textColor = isDark ? '#e5e7eb' : '#1f2937'
   const subtextColor = isDark ? '#9ca3af' : '#6b7280'
   const nodeBg = isDark ? '#1f2937' : '#ffffff'
-  const tooltipBg = isDark ? '#111827' : '#f9fafb'
-  const tooltipBorder = isDark ? '#374151' : '#d1d5db'
+  const nodeBorder = isDark ? '#374151' : '#e5e7eb'
 
   return (
-    <div className="w-full overflow-auto" style={{ maxHeight: 500 }}>
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        width="100%"
-        style={{ minHeight: 200, maxHeight: 480 }}
+    <div className="w-full h-full flex flex-col" style={{ minHeight: 400 }}>
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-3 text-xs" style={{ color: subtextColor }}>
+          <span className="flex items-center gap-1.5">
+            <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" strokeWidth="2" /></svg>
+            <span className="font-medium">Wired</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#3b82f6" strokeWidth="2" strokeDasharray="8 4" /></svg>
+            <span className="font-medium">Wireless</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#8b5cf6" strokeWidth="3" /></svg>
+            <span className="font-medium">WAN</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#10b981" strokeWidth="2" strokeDasharray="4 4" /></svg>
+            <span className="font-medium">VPN</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={resetView}
+            className="px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            style={{ color: textColor }}
+            title="Reset to 100% zoom"
+          >
+            Reset View
+          </button>
+          <span className="text-xs font-mono" style={{ color: subtextColor }}>
+            {(zoom * 100).toFixed(0)}%
+          </span>
+        </div>
+      </div>
+
+      {/* Topology Canvas */}
+      <div
+        className="flex-1 overflow-hidden relative bg-gray-50 dark:bg-gray-900"
+        style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
       >
-        {/* Links */}
-        {layoutLinks.map((l, i) => {
-          const style = linkStyle(l.link.linkType)
-          const midX = (l.source.x + l.target.x) / 2
-          const midY = (l.source.y + l.target.y) / 2
-          return (
-            <g key={`link-${i}`}>
-              <line
-                x1={l.source.x}
-                y1={l.source.y}
-                x2={l.target.x}
-                y2={l.target.y}
-                stroke={style.stroke}
-                strokeWidth={style.width}
-                strokeDasharray={style.dasharray || undefined}
-                opacity={0.7}
-              />
-              {l.link.label && (
-                <text
-                  x={midX}
-                  y={midY - 6}
-                  textAnchor="middle"
-                  fontSize={8}
-                  fill={subtextColor}
-                >
-                  {l.link.label}
-                </text>
-              )}
-            </g>
-          )
-        })}
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${width} ${height}`}
+          width="100%"
+          height="100%"
+          style={{
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transformOrigin: 'center',
+            transition: isPanning ? 'none' : 'transform 0.2s ease-out',
+          }}
+          onWheel={handleWheel}
+        >
+          {/* Links */}
+          {layoutLinks.map((l, i) => {
+            const style = linkStyle(l.link.linkType)
+            const midX = (l.source.x + l.target.x) / 2
+            const midY = (l.source.y + l.target.y) / 2
 
-        {/* Nodes */}
-        {layoutNodes.map((ln) => {
-          const border = statusColor(ln.node.status)
-          const isHovered = hoveredNode === ln.id
-          return (
-            <g
-              key={ln.id}
-              transform={`translate(${ln.x - NODE_WIDTH / 2}, ${ln.y - NODE_HEIGHT / 2})`}
-              onMouseEnter={() => setHoveredNode(ln.id)}
-              onMouseLeave={() => setHoveredNode(null)}
-              style={{ cursor: 'default' }}
-            >
-              {/* Node background */}
-              <rect
-                width={NODE_WIDTH}
-                height={NODE_HEIGHT}
-                rx={8}
-                ry={8}
-                fill={nodeBg}
-                stroke={border}
-                strokeWidth={isHovered ? 2.5 : 1.5}
-              />
+            // Calculate angle for label rotation to reduce overlap
+            const dx = l.target.x - l.source.x
+            const dy = l.target.y - l.source.y
+            const angle = Math.atan2(dy, dx) * (180 / Math.PI)
 
-              {/* Device icon */}
-              <svg x={8} y={8} width={24} height={24} viewBox="0 0 24 24">
-                <DeviceIcon type={ln.node.deviceType} color={border} />
-              </svg>
-
-              {/* Label */}
-              <text
-                x={38}
-                y={22}
-                fontSize={11}
-                fontWeight={600}
-                fill={textColor}
-                clipPath={`inset(0 0 0 0)`}
-              >
-                {ln.node.label.length > 10
-                  ? ln.node.label.slice(0, 10) + '…'
-                  : ln.node.label}
-              </text>
-
-              {/* Device type / model */}
-              <text x={38} y={36} fontSize={9} fill={subtextColor}>
-                {ln.node.model || ln.node.deviceType.toUpperCase()}
-              </text>
-
-              {/* IP */}
-              {ln.node.ip && (
-                <text x={38} y={50} fontSize={8} fill={subtextColor}>
-                  {ln.node.ip}
-                </text>
-              )}
-
-              {/* Status dot */}
-              <circle cx={NODE_WIDTH - 12} cy={12} r={4} fill={border} />
-
-              {/* Tooltip on hover */}
-              {isHovered && (
-                <g transform={`translate(${NODE_WIDTH + 8}, 0)`}>
-                  <rect
-                    width={160}
-                    height={ln.node.serial ? 76 : 56}
-                    rx={6}
-                    fill={tooltipBg}
-                    stroke={tooltipBorder}
-                    strokeWidth={1}
-                  />
-                  <text x={8} y={16} fontSize={10} fontWeight={600} fill={textColor}>
-                    {ln.node.label}
-                  </text>
-                  <text x={8} y={30} fontSize={9} fill={subtextColor}>
-                    {ln.node.model ? `Model: ${ln.node.model}` : `Type: ${ln.node.deviceType.toUpperCase()}`}
-                  </text>
-                  <text x={8} y={44} fontSize={9} fill={subtextColor}>
-                    {ln.node.ip ? `IP: ${ln.node.ip}` : `Status: ${ln.node.status ?? 'unknown'}`}
-                  </text>
-                  {ln.node.serial && (
-                    <text x={8} y={58} fontSize={9} fill={subtextColor}>
-                      S/N: {ln.node.serial}
+            return (
+              <g key={`link-${i}`}>
+                <line
+                  x1={l.source.x}
+                  y1={l.source.y}
+                  x2={l.target.x}
+                  y2={l.target.y}
+                  stroke={style.stroke}
+                  strokeWidth={style.width}
+                  strokeDasharray={style.dasharray || undefined}
+                  opacity={0.6}
+                />
+                {l.link.label && (
+                  <g>
+                    {/* Background box for label to prevent overlap */}
+                    <rect
+                      x={midX - (l.link.label.length * 3.5)}
+                      y={midY - 14}
+                      width={l.link.label.length * 7}
+                      height={16}
+                      fill={isDark ? '#1f2937' : '#ffffff'}
+                      opacity={0.9}
+                      rx={3}
+                    />
+                    <text
+                      x={midX}
+                      y={midY - 4}
+                      textAnchor="middle"
+                      fontSize={9}
+                      fontWeight={500}
+                      fill={subtextColor}
+                    >
+                      {l.link.label}
                     </text>
-                  )}
-                </g>
-              )}
-            </g>
-          )
-        })}
-      </svg>
+                  </g>
+                )}
+              </g>
+            )
+          })}
 
-      {/* Link type legend */}
-      <div className="flex gap-4 px-2 py-1 text-[10px]" style={{ color: subtextColor }}>
-        <span className="flex items-center gap-1">
-          <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#6b7280" strokeWidth="1.5" /></svg>
-          Wired
-        </span>
-        <span className="flex items-center gap-1">
-          <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#3b82f6" strokeWidth="1.5" strokeDasharray="6 3" /></svg>
-          Wireless
-        </span>
-        <span className="flex items-center gap-1">
-          <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#8b5cf6" strokeWidth="2.5" /></svg>
-          WAN
-        </span>
-        <span className="flex items-center gap-1">
-          <svg width="20" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke="#10b981" strokeWidth="1.5" strokeDasharray="3 3" /></svg>
-          VPN
-        </span>
+          {/* Nodes */}
+          {layoutNodes.map((ln) => {
+            const border = statusColor(ln.node.status)
+            const isHovered = hoveredNode === ln.id
+            const isInternet = ln.node.deviceType === 'internet'
+            return (
+              <g
+                key={ln.id}
+                transform={`translate(${ln.x - NODE_WIDTH / 2}, ${ln.y - NODE_HEIGHT / 2})`}
+                onMouseEnter={() => setHoveredNode(ln.id)}
+                onMouseLeave={() => setHoveredNode(null)}
+                style={{ cursor: 'pointer' }}
+              >
+                {/* Glow effect for hovered nodes */}
+                {isHovered && (
+                  <rect
+                    x={-4}
+                    y={-4}
+                    width={NODE_WIDTH + 8}
+                    height={NODE_HEIGHT + 8}
+                    rx={12}
+                    fill={border}
+                    opacity={0.15}
+                  />
+                )}
+
+                {/* Node background with gradient */}
+                <defs>
+                  <linearGradient id={`grad-${ln.id}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor={isDark ? '#374151' : '#ffffff'} />
+                    <stop offset="100%" stopColor={isDark ? '#1f2937' : '#f9fafb'} />
+                  </linearGradient>
+                </defs>
+                <rect
+                  width={NODE_WIDTH}
+                  height={NODE_HEIGHT}
+                  rx={10}
+                  fill={`url(#grad-${ln.id})`}
+                  stroke={isInternet ? '#8b5cf6' : border}
+                  strokeWidth={isHovered ? 3 : 2}
+                  filter={isHovered ? 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' : undefined}
+                />
+
+                {/* Device icon */}
+                <svg x={10} y={10} width={28} height={28} viewBox="0 0 24 24">
+                  <DeviceIcon type={ln.node.deviceType} color={isInternet ? '#8b5cf6' : border} />
+                </svg>
+
+                {/* Text clipping area to prevent overflow */}
+                <defs>
+                  <clipPath id={`clip-text-${ln.id}`}>
+                    <rect x={44} y={0} width={NODE_WIDTH - 58} height={NODE_HEIGHT} />
+                  </clipPath>
+                </defs>
+
+                {/* Device name - constrained to box width */}
+                <text
+                  x={44}
+                  y={26}
+                  fontSize={13}
+                  fontWeight={600}
+                  fill={textColor}
+                  clipPath={`url(#clip-text-${ln.id})`}
+                >
+                  {ln.node.label.length > 10
+                    ? ln.node.label.slice(0, 10) + '…'
+                    : ln.node.label}
+                </text>
+
+                {/* Device type / model */}
+                <text
+                  x={44}
+                  y={42}
+                  fontSize={11}
+                  fill={subtextColor}
+                  clipPath={`url(#clip-text-${ln.id})`}
+                >
+                  {ln.node.model && ln.node.model.length > 11
+                    ? ln.node.model.slice(0, 11) + '…'
+                    : ln.node.model || ln.node.deviceType.toUpperCase()}
+                </text>
+
+                {/* IP */}
+                {ln.node.ip && (
+                  <text
+                    x={44}
+                    y={58}
+                    fontSize={10}
+                    fill={subtextColor}
+                    fontFamily="monospace"
+                    clipPath={`url(#clip-text-${ln.id})`}
+                  >
+                    {ln.node.ip}
+                  </text>
+                )}
+
+                {/* Status indicator */}
+                <circle cx={NODE_WIDTH - 14} cy={14} r={5} fill={border} />
+              </g>
+            )
+          })}
+        </svg>
+
+        {/* Hover tooltip (HTML overlay with smart positioning) */}
+        {hoveredNode && (() => {
+          const ln = layoutNodes.find((n) => n.id === hoveredNode)
+          if (!ln || !svgRef.current) return null
+
+          const container = svgRef.current.parentElement
+          if (!container) return null
+
+          // Calculate node position in screen coordinates
+          const nodeScreenX = ln.x * zoom + pan.x
+          const nodeScreenY = ln.y * zoom + pan.y
+          const nodeScreenWidth = NODE_WIDTH * zoom
+          const nodeScreenHeight = NODE_HEIGHT * zoom
+
+          // Tooltip dimensions (approximate)
+          const tooltipWidth = 220
+          const tooltipHeight = ln.node.serial ? 120 : 100
+
+          // Container dimensions
+          const containerRect = container.getBoundingClientRect()
+          const containerWidth = containerRect.width
+          const containerHeight = containerRect.height
+
+          // Determine best position (try right, left, top, bottom)
+          let left = nodeScreenX + nodeScreenWidth / 2 + 10
+          let top = nodeScreenY - nodeScreenHeight / 2
+          let transformOrigin = 'left top'
+
+          // Check if tooltip goes off right edge
+          if (left + tooltipWidth > containerWidth - 20) {
+            // Try left side instead
+            left = nodeScreenX - nodeScreenWidth / 2 - tooltipWidth - 10
+            transformOrigin = 'right top'
+          }
+
+          // Check if tooltip goes off left edge
+          if (left < 20) {
+            // Center horizontally, position below node
+            left = nodeScreenX - tooltipWidth / 2
+            top = nodeScreenY + nodeScreenHeight / 2 + 10
+            transformOrigin = 'center top'
+          }
+
+          // Check if tooltip goes off bottom edge
+          if (top + tooltipHeight > containerHeight - 20) {
+            // Position above node instead
+            top = nodeScreenY - nodeScreenHeight / 2 - tooltipHeight - 10
+            transformOrigin = transformOrigin.replace('top', 'bottom')
+          }
+
+          // Check if tooltip goes off top edge
+          if (top < 20) {
+            top = 20
+          }
+
+          // Clamp left position
+          left = Math.max(20, Math.min(left, containerWidth - tooltipWidth - 20))
+
+          return (
+            <div
+              className="absolute pointer-events-none z-50"
+              style={{
+                left: `${left}px`,
+                top: `${top}px`,
+                transformOrigin,
+              }}
+            >
+              <div className="bg-gray-900 dark:bg-gray-800 text-white rounded-lg shadow-2xl p-3 min-w-[200px] max-w-[220px] border border-gray-700">
+                <div className="font-semibold text-sm mb-2 break-words">{ln.node.label}</div>
+                <div className="space-y-1 text-xs text-gray-300">
+                  {ln.node.model && (
+                    <div>
+                      <span className="text-gray-400">Model:</span> {ln.node.model}
+                    </div>
+                  )}
+                  {ln.node.ip && (
+                    <div>
+                      <span className="text-gray-400">IP:</span> <span className="font-mono">{ln.node.ip}</span>
+                    </div>
+                  )}
+                  {ln.node.serial && (
+                    <div className="break-all">
+                      <span className="text-gray-400">Serial:</span> <span className="font-mono text-xs">{ln.node.serial}</span>
+                    </div>
+                  )}
+                  {ln.node.status && (
+                    <div className="flex items-center gap-2 pt-1 mt-1 border-t border-gray-700">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColor(ln.node.status) }} />
+                      <span className="capitalize">{ln.node.status}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )

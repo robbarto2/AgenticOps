@@ -12,9 +12,9 @@ export function ChatInput({ onSend, onStop }: Props) {
   const isProcessing = useChatStore((s) => s.isProcessing)
   const queue = useQueueStore((s) => s.queue)
 
-  // Check if queue is visible (2+ items)
+  // Check if queue is visible (1+ items)
   const activeQueue = queue.filter((p) => p.status === 'pending' || p.status === 'processing')
-  const queueVisible = activeQueue.length > 1
+  const queueVisible = activeQueue.length > 0
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim()

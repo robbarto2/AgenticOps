@@ -115,6 +115,38 @@ export function ClientPopup({ metadata, clientName, onClose }: Props) {
         {/* Client details */}
         <div className="px-4 py-3">
           <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+            {metadata.status && (
+              <div className="col-span-2">
+                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Status</span>
+                <div className="mt-1">
+                  {(() => {
+                    const s = metadata.status.toLowerCase()
+                    let dotClass: string
+                    let pillClass: string
+                    if (s === 'online') {
+                      dotClass = 'bg-emerald-500'
+                      pillClass = 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 ring-emerald-500/40'
+                    } else if (s === 'alerting') {
+                      dotClass = 'bg-amber-500'
+                      pillClass = 'bg-amber-500/20 text-amber-600 dark:text-amber-400 ring-amber-500/40'
+                    } else if (s === 'offline') {
+                      dotClass = 'bg-red-500'
+                      pillClass = 'bg-red-500/20 text-red-600 dark:text-red-400 ring-red-500/40'
+                    } else {
+                      dotClass = 'bg-gray-400'
+                      pillClass = 'bg-gray-500/20 text-gray-600 dark:text-gray-400 ring-gray-500/40'
+                    }
+                    return (
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ring-1 ring-inset ${pillClass}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+                        {metadata.status}
+                      </span>
+                    )
+                  })()}
+                </div>
+              </div>
+            )}
+
             <div>
               <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">MAC Address</span>
               <p className="text-sm text-gray-900 dark:text-gray-100 font-mono mt-0.5">{metadata.mac}</p>

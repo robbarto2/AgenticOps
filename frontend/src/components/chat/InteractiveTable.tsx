@@ -9,6 +9,36 @@ interface Props {
   tableData: TableData
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase().trim()
+  let dotClass: string
+  let pillClass: string
+
+  if (s === 'online' || s === 'enabled') {
+    dotClass = 'bg-emerald-500'
+    pillClass = 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 ring-emerald-500/40'
+  } else if (s === 'alerting') {
+    dotClass = 'bg-amber-500'
+    pillClass = 'bg-amber-500/20 text-amber-600 dark:text-amber-400 ring-amber-500/40'
+  } else if (s === 'offline') {
+    dotClass = 'bg-red-500'
+    pillClass = 'bg-red-500/20 text-red-600 dark:text-red-400 ring-red-500/40'
+  } else if (s === 'dormant' || s === 'disabled') {
+    dotClass = 'bg-gray-400'
+    pillClass = 'bg-gray-500/20 text-gray-600 dark:text-gray-400 ring-gray-500/40'
+  } else {
+    dotClass = 'bg-gray-400'
+    pillClass = 'bg-gray-500/20 text-gray-600 dark:text-gray-400 ring-gray-500/40'
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${pillClass}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+      {status}
+    </span>
+  )
+}
+
 export function InteractiveTable({ tableData }: Props) {
   const [hoveredRowIdx, setHoveredRowIdx] = useState<number | null>(null)
   const [popupRowIdx, setPopupRowIdx] = useState<number | null>(null)
@@ -87,7 +117,7 @@ export function InteractiveTable({ tableData }: Props) {
               >
                 {row.cells.map((cell, i) => (
                   <td key={i} className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
-                    {cell}
+                    {tableData.columns[i] === 'Status' ? <StatusBadge status={cell} /> : cell}
                   </td>
                 ))}
               </tr>

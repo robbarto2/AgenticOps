@@ -95,11 +95,17 @@ function CardNodeInner({ data, selected }: NodeProps) {
         isVisible={selected}
         minWidth={400}
         minHeight={200}
-        lineStyle={{ borderColor: '#3b82f680' }}
-        handleStyle={{ backgroundColor: '#3b82f6', width: 8, height: 8 }}
+        lineStyle={{ borderColor: accent + '80', borderWidth: 2 }}
+        handleStyle={{
+          backgroundColor: accent,
+          width: 12,
+          height: 12,
+          borderRadius: 3,
+          border: '2px solid white',
+        }}
       />
       <div
-        className="bg-white dark:bg-gray-900 border-[3px] rounded-lg shadow-xl overflow-hidden w-full h-full flex flex-col"
+        className="bg-white dark:bg-gray-900 border-[3px] rounded-lg shadow-xl overflow-hidden w-full h-full flex flex-col relative"
         style={{ borderColor: accent }}
       >
         <CardHeader
@@ -111,6 +117,20 @@ function CardNodeInner({ data, selected }: NodeProps) {
         />
         {!card.collapsed && (
           <div className="p-3 card-content nodrag nopan nowheel select-text cursor-auto flex-1 overflow-auto min-h-0">{renderContent()}</div>
+        )}
+
+        {/* Custom resize handle icon in bottom-right corner */}
+        {!card.collapsed && (
+          <div
+            className="absolute bottom-1 right-1 w-8 h-8 flex items-center justify-center cursor-nwse-resize opacity-30 hover:opacity-80 transition-opacity z-10"
+            style={{ color: accent }}
+            title="Drag to resize"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="drop-shadow">
+              {/* Three diagonal lines forming resize grip */}
+              <path d="M17 3L3 17M17 7L7 17M17 11L11 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          </div>
         )}
       </div>
     </>

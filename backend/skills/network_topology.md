@@ -5,14 +5,21 @@ Topology, network diagram, device connections, network map, how devices are conn
 
 ## Steps
 
-1. **Get network devices**: Call `getNetworkDevices` for the target network to get all devices with their serial numbers, models, and IPs.
+**CRITICAL: NEVER ask the user for network IDs or organization IDs. Look them up using the API.**
 
-2. **Get LLDP/CDP neighbor data**: For each device, call `call_meraki_api` with:
+**PERFORMANCE CRITICAL: Make LLDP/CDP calls in PARALLEL for all devices at once, not sequentially.**
+
+1. **Look up the network**: ALWAYS call `getOrganizationNetworks` first (no parameters needed). Search the results for the network name the user mentioned. Extract the `networkId` from the matching network.
+
+2. **Get network devices**: Call `getNetworkDevices` with the networkId you found in step 1, to get all devices with their serial numbers, models, and IPs.
+
+3. **Get LLDP/CDP neighbor data FOR ALL DEVICES IN PARALLEL**: Make multiple simultaneous tool calls (one per device) in a single iteration:
+   - For each device, call `call_meraki_api` with:
    - method: `GET`
    - path: `/devices/{serial}/lldpCdp`
    This returns neighbor information showing physical connections between devices.
 
-3. **Get uplink statuses** (optional, for MX/gateway devices): Call `getOrganizationDevicesUplinksAddressesByDevice` or `call_meraki_api` with path `/organizations/{orgId}/devices/uplinks/addresses/byDevice` to identify WAN connections.
+4. **Get uplink statuses** (optional, for MX/gateway devices): Call `getOrganizationDevicesUplinksAddressesByDevice` (no parameters needed) to identify WAN connections.
 
 ## Analysis
 

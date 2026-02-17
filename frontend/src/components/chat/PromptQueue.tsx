@@ -13,8 +13,8 @@ export function PromptQueue({ onStopProcessing }: Props) {
   // Only show pending and processing items (not completed/cancelled/error)
   const activeQueue = queue.filter((p) => p.status === 'pending' || p.status === 'processing')
 
-  // Only show queue if there are 2+ items (meaning user has queued ahead)
-  if (activeQueue.length <= 1) return null
+  // Don't show queue if empty
+  if (activeQueue.length === 0) return null
 
   const pendingCount = activeQueue.filter((p) => p.status === 'pending').length
 
