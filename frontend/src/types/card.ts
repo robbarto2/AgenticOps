@@ -9,6 +9,7 @@ export type CardType =
   | 'org_summary'
   | 'switch_detail'
   | 'access_point_detail'
+  | 'device_detail'
   | 'test_detail'
   | 'topology'
 
@@ -173,6 +174,21 @@ export interface AccessPointDetailCard extends CardBase {
   }
 }
 
+export interface DeviceDetailCard extends CardBase {
+  type: 'device_detail'
+  data: {
+    serial: string
+    model: string
+    deviceType: string  // 'Camera', 'Sensor', 'Security Appliance', 'Cellular Gateway', etc.
+    lanIp?: string
+    firmware?: string
+    networkId?: string
+    status?: string
+    tags?: string[]
+    notes?: string
+  }
+}
+
 export interface TestAgent {
   agentId: string
   agentName: string
@@ -268,5 +284,6 @@ export type AnyCard =
   | OrgSummaryCard
   | SwitchDetailCard
   | AccessPointDetailCard
+  | DeviceDetailCard
   | TestDetailCard
   | TopologyCard

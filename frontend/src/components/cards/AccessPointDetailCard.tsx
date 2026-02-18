@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import type { AccessPointDetailCard as AccessPointDetailCardType } from '../../types/card'
 import { StatDetailPopover, type DetailType } from './StatDetailPopover'
+import { UpstreamConnection } from './UpstreamConnection'
 
 interface Props {
   data: AccessPointDetailCardType['data']
@@ -171,6 +172,10 @@ export function AccessPointDetailCard({ data }: Props) {
           </div>
         </>
       )}
+
+      {/* Upstream Connection (LLDP/CDP) */}
+      <div className="border-t border-gray-200 dark:border-gray-800" />
+      <UpstreamConnection serial={data.serial} />
     </div>
   )
 }

@@ -30,6 +30,9 @@ _NETWORK_METHOD_NAMES = {"getOrganizationNetworks", "getorganizationnetworks"}
 _DEVICE_TOOL_NAMES = {"getNetworkDevices", "getnetworkdevices", "getOrganizationDevices", "getorganizationdevices"}
 _DEVICE_METHOD_NAMES = {"getNetworkDevices", "getnetworkdevices", "getOrganizationDevices", "getorganizationdevices"}
 
+# Tool names that return device statuses (online/offline/alerting)
+_DEVICE_STATUS_TOOL_NAMES = {"getOrganizationDevicesStatuses", "getorganizationdevicesstatuses"}
+
 # Tool names and method names that return network clients
 _CLIENT_TOOL_NAMES = {"getNetworkClients", "getnetworkclients"}
 _CLIENT_METHOD_NAMES = {"getNetworkClients", "getnetworkclients"}
@@ -296,6 +299,59 @@ def _detect_network_filter(user_query: str, network_map: dict[str, str]) -> str 
     return None
 
 
+def _extract_device_status_map(tool_results: list[dict]) -> dict[str, str]:
+    """Build a serial → status map from getOrganizationDevicesStatuses results."""
+    status_map: dict[str, str] = {}
+
+    for result in tool_results:
+        tool_name = result.get("tool", "")
+
+        # Check for direct tool match or call_meraki_api with status method
+        is_status_tool = tool_name.lower().rstrip() in _DEVICE_STATUS_TOOL_NAMES
+        if not is_status_tool and tool_name == "call_meraki_api":
+            args = result.get("args", {})
+            method = args.get("method", "")
+            is_status_tool = method.lower() in _DEVICE_STATUS_TOOL_NAMES
+
+        if not is_status_tool:
+            continue
+
+        raw = result.get("result", "")
+        parsed = _parse_result(raw)
+        if parsed is None:
+            continue
+
+        # Handle wrapped responses
+        if isinstance(parsed, dict):
+            if parsed.get("_response_truncated") and parsed.get("_full_response_cached"):
+                full_data = _read_cached_file(parsed["_full_response_cached"])
+                if full_data is not None:
+                    parsed = full_data
+                else:
+                    parsed = parsed.get("_preview") or []
+            else:
+                sample = parsed.get("data") or parsed.get("results") or parsed.get("_preview") or parsed.get("_sample")
+                if isinstance(sample, list):
+                    parsed = sample
+                else:
+                    continue
+
+        if not isinstance(parsed, list):
+            continue
+
+        for item in parsed:
+            if isinstance(item, dict):
+                serial = item.get("serial", "")
+                status = item.get("status", "")
+                if serial and status:
+                    status_map[serial] = status
+
+    if status_map:
+        logger.info("_extract_device_status_map: built map with %d device statuses", len(status_map))
+
+    return status_map
+
+
 def extract_device_table(tool_results: list[dict], user_query: str = "") -> list[dict]:
     """Find device listing results and build structured table data.
 
@@ -328,6 +384,9 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
     elif "alerting" in query_lower:
         filter_status = ["alerting"]
         logger.info("extract_device_table: detected filter for alerting devices")
+
+    # Build serial → status map from getOrganizationDevicesStatuses results
+    device_status_map = _extract_device_status_map(tool_results)
 
     for result in tool_results:
         tool_name = result.get("tool", "")
@@ -390,8 +449,8 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
             model = dev.get("model", "")
             network_id = dev.get("networkId", "")
 
-            # Extract status early for filtering
-            status = dev.get("status", "")
+            # Extract status — prefer inline status, fall back to status map
+            status = dev.get("status", "") or device_status_map.get(serial, "")
 
             # Apply device type filter if specified
             if filter_types and not _should_filter_device(model, filter_types):
@@ -431,7 +490,7 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
                     model,
                     serial,
                     lan_ip or "—",
-                    status or "Unknown",
+                    status or "—",
                 ],
                 "status_type": status_type,
                 "metadata": {

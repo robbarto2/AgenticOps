@@ -52,6 +52,8 @@ _AFFIRMATIVE_RE = re.compile(
 
 # Fast-path regex patterns to skip the LLM call entirely for obvious queries
 _FAST_ROUTES: list[tuple[re.Pattern, str]] = [
+    # Performance agent — test results, metrics, monitoring data (must match before testing and discovery)
+    (re.compile(r"\b(test\s+results?|test\s+metrics?|test\s+performance|test\s+data|monitoring\s+(results?|data|metrics)|how\s+(are|is)\s+(my\s+)?tests?\s+(doing|performing)|show\s+(me\s+)?(the\s+)?(results?|metrics?|performance|data)\s+(of|for|from)\s+(my\s+|the\s+)?(te\s+|thousandeyes\s+)?tests?|availability\s+(report|trend|data)|response\s+time\s+(trend|data|history)|latency\s+(trend|data|report)|what('s| is)\s+(the\s+)?(latency|availability|response\s+time|packet\s+loss|performance))\b", re.IGNORECASE), "performance"),
     # Testing agent — must match before troubleshooting (both mention "connectivity")
     (re.compile(r"\b(run\s+(a\s+)?test|instant\s+test|page\s+load\s+test|dns\s+test|http\s+test|test\s+connectivity|deploy\s+template|rerun\s+test)\b", re.IGNORECASE), "testing"),
     # Topology agent — network topology/map queries (must come before discovery)
@@ -118,6 +120,9 @@ async def orchestrator_node(state: AgentState) -> dict:
 
     if agent_name:
         logger.info("Orchestrator fast-routed to '%s' (regex): %s", agent_name, query[:100])
+        # Performance queries should always generate cards (charts/metrics)
+        if agent_name == "performance":
+            generate_cards = True
     else:
         # Fall back to LLM classification using the fast Haiku model
         llm = ChatAnthropic(
@@ -136,7 +141,7 @@ async def orchestrator_node(state: AgentState) -> dict:
 
         # Parse multi-agent plan (comma-separated) or single agent
         parts = [p.strip() for p in raw.split(",") if p.strip()]
-        valid_agents = {"troubleshooting", "compliance", "security", "discovery", "testing", "remediation", "topology"}
+        valid_agents = {"troubleshooting", "compliance", "security", "discovery", "testing", "remediation", "topology", "performance"}
         parts = [p for p in parts if p in valid_agents]
 
         if not parts:
@@ -144,6 +149,10 @@ async def orchestrator_node(state: AgentState) -> dict:
             parts = ["discovery"]
 
         agent_name = parts[0]
+
+        # Performance queries should always generate cards (charts/metrics)
+        if agent_name == "performance":
+            generate_cards = True
 
         # If multi-agent plan detected, store it
         if len(parts) > 1:

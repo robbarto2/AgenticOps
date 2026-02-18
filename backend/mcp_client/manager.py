@@ -301,6 +301,7 @@ _DISCOVERY_TOOLS = {
     "getOrganizations",
     "getOrganizationNetworks",
     "getOrganizationDevices",
+    "getOrganizationDevicesStatuses",
     "getNetwork",
     "getNetworkDevices",
     "getNetworkClients",
@@ -323,6 +324,7 @@ _TROUBLESHOOTING_TOOLS = {
     # Meraki
     "getOrganizationNetworks",
     "getNetworkDevices",
+    "getOrganizationDevicesStatuses",
     "getNetworkClients",
     "getNetworkEvents",
     "getNetworkWirelessSsids",
@@ -433,6 +435,27 @@ _TOPOLOGY_TOOLS = {
     "get_method_info",
 }
 
+_PERFORMANCE_TOOLS = {
+    # ThousandEyes — test discovery and metrics
+    "list_network_app_synthetics_tests",
+    "get_network_app_synthetics_test",
+    "get_network_app_synthetics_metrics",
+    "get_endpoint_agent_metrics",
+    "get_anomalies",
+    "list_alerts",
+    "get_path_visualization_results",
+    "get_full_path_visualization",
+    "get_bgp_route_test_results",
+    "list_cloud_enterprise_agents",
+    "list_endpoint_agents",
+    "list_endpoint_agent_tests",
+    # Meraki — network lookup and uplink performance
+    "getOrganizationNetworks",
+    "call_meraki_api",
+    "search_methods",
+    "get_method_info",
+}
+
 _AGENT_TOOL_ALLOWLIST: dict[str, set[str]] = {
     "discovery": _DISCOVERY_TOOLS,
     "troubleshooting": _TROUBLESHOOTING_TOOLS,
@@ -441,6 +464,7 @@ _AGENT_TOOL_ALLOWLIST: dict[str, set[str]] = {
     "testing": _TESTING_TOOLS,
     "remediation": _REMEDIATION_TOOLS,
     "topology": _TOPOLOGY_TOOLS,
+    "performance": _PERFORMANCE_TOOLS,
 }
 
 

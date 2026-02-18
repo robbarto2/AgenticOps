@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useCanvasStore } from '../../store/canvasSlice'
-import type { NetworkDetailCard, SwitchDetailCard, AccessPointDetailCard, SwitchPort } from '../../types/card'
+import type { SwitchDetailCard, AccessPointDetailCard, DeviceDetailCard, SwitchPort } from '../../types/card'
 
 interface DeviceMetadata {
   serial: string
@@ -169,22 +169,21 @@ export function DevicePopup({ metadata, deviceName, onClose }: Props) {
       }
       addCard(apCard)
     } else {
-      const card: NetworkDetailCard = {
+      const card: DeviceDetailCard = {
         id: `card-device-${metadata.serial}-${Date.now()}`,
-        type: 'network_detail',
+        type: 'device_detail',
         title: deviceName,
         source: 'meraki',
         data: {
-          networkId: metadata.networkId || metadata.serial,
-          timeZone: null,
-          tags: metadata.tags || null,
-          productTypes: metadata.model ? [metadata.model] : null,
-          notes: metadata.notes || null,
-          stats: {
-            deviceCount: 1,
-            clientCount: 0,
-            ssidCount: 0,
-          },
+          serial: metadata.serial,
+          model: metadata.model || '',
+          deviceType: deviceInfo.type,
+          lanIp: metadata.lanIp,
+          firmware: metadata.firmware,
+          networkId: metadata.networkId,
+          status: metadata.status,
+          tags: metadata.tags,
+          notes: metadata.notes,
         },
       }
       addCard(card)

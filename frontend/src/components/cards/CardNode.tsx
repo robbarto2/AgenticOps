@@ -15,6 +15,7 @@ import { OrgSummaryCard } from './OrgSummaryCard'
 import { SwitchDetailCard } from './SwitchDetailCard'
 import { AccessPointDetailCard } from './AccessPointDetailCard'
 import { TestDetailCard } from './TestDetailCard'
+import { DeviceDetailCard } from './DeviceDetailCard'
 import { TopologyCard } from './TopologyCard'
 
 function cardAccentColor(type: string): string {
@@ -28,6 +29,8 @@ function cardAccentColor(type: string): string {
       return '#3b82f6' // blue — switches
     case 'access_point_detail':
       return '#22c55e' // green — wireless APs (brighter green than network)
+    case 'device_detail':
+      return '#f97316' // orange — generic devices (cameras, sensors, appliances, gateways)
     case 'test_detail':
       return '#06b6d4' // cyan — tests
     case 'topology':
@@ -76,6 +79,8 @@ function CardNodeInner({ data, selected }: NodeProps) {
         return <SwitchDetailCard data={card.data} />
       case 'access_point_detail':
         return <AccessPointDetailCard data={card.data} />
+      case 'device_detail':
+        return <DeviceDetailCard data={card.data} />
       case 'test_detail':
         return <TestDetailCard card={card} />
       case 'topology':
@@ -95,15 +100,21 @@ function CardNodeInner({ data, selected }: NodeProps) {
         isVisible={selected}
         minWidth={400}
         minHeight={200}
-        lineStyle={{ borderColor: accent + '80', borderWidth: 2 }}
+        lineStyle={{
+          borderColor: '#22d3ee',
+          borderWidth: 1.5,
+          borderStyle: 'dashed',
+        }}
         handleStyle={{
-          backgroundColor: accent,
-          width: 12,
-          height: 12,
-          borderRadius: 3,
-          border: '2px solid white',
+          backgroundColor: '#22d3ee',
+          width: 7,
+          height: 7,
+          borderRadius: 1,
+          border: 'none',
+          opacity: 0.85,
         }}
       />
+      <div className="w-full h-full p-[3px]">
       <div
         className="bg-white dark:bg-gray-900 border-[3px] rounded-lg shadow-xl overflow-hidden w-full h-full flex flex-col relative"
         style={{ borderColor: accent }}
@@ -132,6 +143,7 @@ function CardNodeInner({ data, selected }: NodeProps) {
             </svg>
           </div>
         )}
+      </div>
       </div>
     </>
   )

@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react'
 import { useChatStore } from '../../store/chatSlice'
 import type { CompletedToolCall } from '../../store/chatSlice'
 import { agentDisplayName } from '../../utils/formatters'
@@ -12,15 +11,8 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
   compliance: 'Auditing configurations...',
   testing: 'Running instant tests...',
   remediation: 'Preparing configuration changes...',
+  performance: 'Analyzing performance metrics...',
   canvas: 'Preparing results...',
-}
-
-function formatElapsed(ms: number): string {
-  const totalSec = Math.floor(ms / 1000)
-  if (totalSec < 60) return `${totalSec}s`
-  const min = Math.floor(totalSec / 60)
-  const sec = totalSec % 60
-  return `${min}m ${sec.toString().padStart(2, '0')}s`
 }
 
 export function AgentIndicator() {
@@ -28,23 +20,8 @@ export function AgentIndicator() {
   const activeToolCalls = useChatStore((s) => s.activeToolCalls)
   const completedToolCalls = useChatStore((s) => s.completedToolCalls)
   const isProcessing = useChatStore((s) => s.isProcessing)
-  const processingStartedAt = useChatStore((s) => s.processingStartedAt)
   const agentPlan = useChatStore((s) => s.agentPlan)
   const planStep = useChatStore((s) => s.planStep)
-
-  const [elapsed, setElapsed] = useState(0)
-
-  useEffect(() => {
-    if (!processingStartedAt) {
-      setElapsed(0)
-      return
-    }
-    setElapsed(Date.now() - processingStartedAt)
-    const interval = setInterval(() => {
-      setElapsed(Date.now() - processingStartedAt)
-    }, 1000)
-    return () => clearInterval(interval)
-  }, [processingStartedAt])
 
   if (!isProcessing && !activeAgent) return null
 
@@ -79,11 +56,6 @@ export function AgentIndicator() {
             </span>
           )}
         </div>
-        {processingStartedAt && (
-          <span className="text-xs text-gray-400 font-mono tabular-nums">
-            {formatElapsed(elapsed)}
-          </span>
-        )}
       </div>
 
       {/* Description */}

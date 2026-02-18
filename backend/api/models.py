@@ -73,6 +73,16 @@ class ChannelUtilization(BaseModel):
     utilization: float  # 0-100 percentage
 
 
+class LldpCdpNeighbor(BaseModel):
+    """LLDP/CDP neighbor info for a single port."""
+
+    sourcePort: str
+    switchName: str | None = None
+    switchPort: str | None = None
+    switchIp: str | None = None
+    protocol: str  # "lldp", "cdp", or "both"
+
+
 class WebSocketMessage(BaseModel):
     """Incoming WebSocket message from client."""
 

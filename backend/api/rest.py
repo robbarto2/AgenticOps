@@ -13,6 +13,7 @@ from api.models import (
     DeviceDetail,
     EntityStatsResponse,
     HealthResponse,
+    LldpCdpNeighbor,
     SkillInfo,
     SkillsResponse,
     SsidDetail,
@@ -290,6 +291,69 @@ async def device_channel_utilization(serial: str, network_id: str = None) -> lis
     except Exception:
         logger.exception("Failed to fetch channel utilization for %s", serial)
         raise HTTPException(status_code=500, detail="Failed to fetch channel utilization")
+
+
+@router.get("/device/{serial}/lldp-cdp", response_model=list[LldpCdpNeighbor])
+async def device_lldp_cdp(serial: str) -> list[LldpCdpNeighbor]:
+    """Fetch LLDP/CDP neighbor data for a device (upstream switch/port info)."""
+    if not mcp_manager.meraki_connected:
+        raise HTTPException(status_code=503, detail="Meraki MCP not connected")
+
+    try:
+        result = await mcp_manager.call_tool(
+            "call_meraki_api",
+            {
+                "section": "devices",
+                "method": "getDeviceLldpCdp",
+                "parameters": {"serial": serial},
+            },
+        )
+
+        if "error" in result:
+            logger.warning("LLDP/CDP error for %s: %s", serial, result.get("error"))
+            return []
+
+        parsed = _parse_json(result.get("content", ""))
+        if not isinstance(parsed, dict):
+            return []
+
+        ports_data = parsed.get("ports", {})
+        neighbors: list[LldpCdpNeighbor] = []
+
+        for port_name, port_info in ports_data.items():
+            if not isinstance(port_info, dict):
+                continue
+
+            cdp = port_info.get("cdp") or {}
+            lldp = port_info.get("lldp") or {}
+
+            # Extract best available info from CDP and LLDP
+            switch_name = lldp.get("systemName") or cdp.get("deviceId") or None
+            switch_port = cdp.get("portId") or lldp.get("portId") or None
+            switch_ip = cdp.get("address") or lldp.get("managementAddress") or None
+
+            has_cdp = bool(cdp)
+            has_lldp = bool(lldp)
+            protocol = "both" if (has_cdp and has_lldp) else ("cdp" if has_cdp else "lldp")
+
+            if switch_name or switch_port or switch_ip:
+                neighbors.append(
+                    LldpCdpNeighbor(
+                        sourcePort=port_name,
+                        switchName=switch_name,
+                        switchPort=switch_port,
+                        switchIp=switch_ip,
+                        protocol=protocol,
+                    )
+                )
+
+        logger.info("LLDP/CDP for %s: found %d neighbors", serial, len(neighbors))
+        return neighbors
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to fetch LLDP/CDP for %s", serial)
+        return []
 
 
 def _parse_json(content: str | list | dict) -> object | None:

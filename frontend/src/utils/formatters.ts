@@ -16,6 +16,7 @@ export function agentDisplayName(agent: string): string {
     topology: 'Topology',
     testing: 'Testing',
     remediation: 'Remediation',
+    performance: 'Performance',
     canvas: 'Canvas',
     orchestrator: 'Orchestrator',
   }

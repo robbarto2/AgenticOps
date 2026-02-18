@@ -1,5 +1,31 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQueueStore } from '../../store/queueSlice'
+
+function formatElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000)
+  if (totalSec < 60) return `${totalSec}s`
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  return `${min}m ${sec.toString().padStart(2, '0')}s`
+}
+
+function ElapsedTimer({ startedAt }: { startedAt: number }) {
+  const [elapsed, setElapsed] = useState(Date.now() - startedAt)
+
+  useEffect(() => {
+    setElapsed(Date.now() - startedAt)
+    const interval = setInterval(() => {
+      setElapsed(Date.now() - startedAt)
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [startedAt])
+
+  return (
+    <span className="text-[10px] text-gray-400 font-mono tabular-nums">
+      {formatElapsed(elapsed)}
+    </span>
+  )
+}
 
 interface Props {
   onStopProcessing?: () => void
@@ -121,6 +147,9 @@ export function PromptQueue({ onStopProcessing }: Props) {
                     <span className="scale-75">{getStatusIcon(item.status)}</span>
                     {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
                   </span>
+                  {item.status === 'processing' && item.startedAt && (
+                    <ElapsedTimer startedAt={item.startedAt} />
+                  )}
                 </div>
               </div>
               {(item.status === 'pending' || item.status === 'processing') && (

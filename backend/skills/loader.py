@@ -43,6 +43,10 @@ AGENT_SKILLS: dict[str, list[str]] = {
         "ssid_remediation.md",
         "firewall_remediation.md",
     ],
+    "performance": [
+        "performance_monitoring.md",
+        "application_performance.md",
+    ],
 }
 
 

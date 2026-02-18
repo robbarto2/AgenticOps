@@ -1,4 +1,5 @@
-import type { SwitchDetailCard as SwitchDetailCardType, SwitchPort } from '../../types/card'
+import type { SwitchDetailCard as SwitchDetailCardType } from '../../types/card'
+import { UpstreamConnection } from './UpstreamConnection'
 
 interface Props {
   data: SwitchDetailCardType['data']
@@ -116,6 +117,9 @@ export function SwitchDetailCard({ data }: Props) {
           </div>
         </div>
       )}
+
+      {/* Upstream Connection (LLDP/CDP) */}
+      <UpstreamConnection serial={data.serial} />
 
       {/* Device Details */}
       {(data.firmware || data.lanIp || data.publicIp || data.gateway || data.dns) && (

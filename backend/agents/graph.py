@@ -8,6 +8,7 @@ from agents.canvas_agent import canvas_node
 from agents.compliance import compliance_node
 from agents.discovery import discovery_node
 from agents.orchestrator import orchestrator_node, route_to_specialist
+from agents.performance import performance_node
 from agents.remediation import remediation_node
 from agents.security import security_node
 from agents.state import AgentState
@@ -70,7 +71,7 @@ def _plan_router_node(state: AgentState) -> dict:
 # All specialist agent names
 _SPECIALISTS = [
     "troubleshooting", "compliance", "security", "discovery",
-    "testing", "remediation", "topology",
+    "testing", "remediation", "topology", "performance",
 ]
 
 # Build the multi-agent graph
@@ -86,6 +87,7 @@ graph_builder.add_node("discovery", discovery_node)
 graph_builder.add_node("testing", testing_node)
 graph_builder.add_node("remediation", remediation_node)
 graph_builder.add_node("topology", topology_node)
+graph_builder.add_node("performance", performance_node)
 graph_builder.add_node("canvas", canvas_node)
 
 # Entry point
@@ -103,6 +105,7 @@ graph_builder.add_conditional_edges(
         "testing": "testing",
         "remediation": "remediation",
         "topology": "topology",
+        "performance": "performance",
         "canvas": "canvas",
     },
 )
@@ -127,6 +130,7 @@ graph_builder.add_conditional_edges(
         "testing": "testing",
         "remediation": "remediation",
         "topology": "topology",
+        "performance": "performance",
         "canvas": "canvas",
         "__end__": END,
     },

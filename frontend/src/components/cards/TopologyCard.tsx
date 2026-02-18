@@ -505,55 +505,50 @@ export function TopologyCard({ data }: Props) {
           const container = svgRef.current.parentElement
           if (!container) return null
 
-          // Calculate node position in screen coordinates
-          const nodeScreenX = ln.x * zoom + pan.x
-          const nodeScreenY = ln.y * zoom + pan.y
-          const nodeScreenWidth = NODE_WIDTH * zoom
-          const nodeScreenHeight = NODE_HEIGHT * zoom
+          // Use SVG's getScreenCTM to correctly map viewBox coords to screen coords
+          const ctm = svgRef.current.getScreenCTM()
+          if (!ctm) return null
+
+          const containerRect = container.getBoundingClientRect()
+
+          // Transform node center from SVG viewBox coords to container-relative coords
+          const pt = svgRef.current.createSVGPoint()
+          pt.x = ln.x
+          pt.y = ln.y
+          const screenPt = pt.matrixTransform(ctm)
+          const nodeCenterX = screenPt.x - containerRect.left
+          const nodeCenterY = screenPt.y - containerRect.top
+
+          // Calculate half-node size in screen pixels using the CTM scale factors
+          const halfW = (NODE_WIDTH / 2) * ctm.a
+          const halfH = (NODE_HEIGHT / 2) * ctm.d
 
           // Tooltip dimensions (approximate)
           const tooltipWidth = 220
           const tooltipHeight = ln.node.serial ? 120 : 100
 
-          // Container dimensions
-          const containerRect = container.getBoundingClientRect()
-          const containerWidth = containerRect.width
-          const containerHeight = containerRect.height
+          const cw = containerRect.width
+          const ch = containerRect.height
+          const margin = 12
 
-          // Determine best position (try right, left, top, bottom)
-          let left = nodeScreenX + nodeScreenWidth / 2 + 10
-          let top = nodeScreenY - nodeScreenHeight / 2
-          let transformOrigin = 'left top'
+          // Default: position to the right of the node, vertically centered
+          let left = nodeCenterX + halfW + 10
+          let top = nodeCenterY - tooltipHeight / 2
 
-          // Check if tooltip goes off right edge
-          if (left + tooltipWidth > containerWidth - 20) {
-            // Try left side instead
-            left = nodeScreenX - nodeScreenWidth / 2 - tooltipWidth - 10
-            transformOrigin = 'right top'
+          // If off right edge, try left side
+          if (left + tooltipWidth > cw - margin) {
+            left = nodeCenterX - halfW - tooltipWidth - 10
           }
 
-          // Check if tooltip goes off left edge
-          if (left < 20) {
-            // Center horizontally, position below node
-            left = nodeScreenX - tooltipWidth / 2
-            top = nodeScreenY + nodeScreenHeight / 2 + 10
-            transformOrigin = 'center top'
+          // If off left edge, position below node
+          if (left < margin) {
+            left = nodeCenterX - tooltipWidth / 2
+            top = nodeCenterY + halfH + 10
           }
 
-          // Check if tooltip goes off bottom edge
-          if (top + tooltipHeight > containerHeight - 20) {
-            // Position above node instead
-            top = nodeScreenY - nodeScreenHeight / 2 - tooltipHeight - 10
-            transformOrigin = transformOrigin.replace('top', 'bottom')
-          }
-
-          // Check if tooltip goes off top edge
-          if (top < 20) {
-            top = 20
-          }
-
-          // Clamp left position
-          left = Math.max(20, Math.min(left, containerWidth - tooltipWidth - 20))
+          // Clamp to stay within container
+          left = Math.max(margin, Math.min(left, cw - tooltipWidth - margin))
+          top = Math.max(margin, Math.min(top, ch - tooltipHeight - margin))
 
           return (
             <div
@@ -561,7 +556,6 @@ export function TopologyCard({ data }: Props) {
               style={{
                 left: `${left}px`,
                 top: `${top}px`,
-                transformOrigin,
               }}
             >
               <div className="bg-gray-900 dark:bg-gray-800 text-white rounded-lg shadow-2xl p-3 min-w-[200px] max-w-[220px] border border-gray-700">

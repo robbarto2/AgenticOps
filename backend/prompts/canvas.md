@@ -28,11 +28,12 @@ Available card types:
    { "type": "topology", "title": "...", "source": "meraki", "data": { "nodes": [{"id": "dev1", "label": "Device Name", "deviceType": "mx|ms|mr|mv|mg|mt|client|internet|unknown", "status": "online|offline|dormant", "ip": "10.0.0.1", "model": "MX68", "serial": "Q2XX-XXXX-XXXX"}], "links": [{"source": "dev1", "target": "dev2", "linkType": "wired|wireless|wan|vpn", "label": "Gi1/0/1", "speed": "1 Gbps"}], "networkName": "My Network" } }
 
 Guidelines:
+- **CRITICAL - Only create cards when the user explicitly asks for visual output (charts, tables, reports, topology maps) OR the query clearly implies a card** (e.g. listing devices, showing health dashboards, topology maps). If the specialist agent's text response fully answers the user's question (e.g. troubleshooting diagnostics, event listings, simple Q&A), return an empty JSON array `[]` — do NOT create cards just because data exists. The chat response is sufficient on its own in most cases.
 - Choose the most appropriate card type for the data
 - Use meaningful, descriptive titles
 - Set the correct source ("meraki" or "thousandeyes") based on where the data came from
 - Extract and transform raw tool results into clean card data
-- Create multiple cards when the data covers different aspects
+- **CRITICAL - Do NOT add extra cards the user did not ask for.** If the user asks to "show events in a card", create ONE card with the events. Do NOT add a second card with recommendations, actions, summaries, or analysis. Only create exactly what was requested — nothing more. The chat response already contains any analysis or recommendations from the specialist agent.
 - Use colors that work on a dark theme (blue: #3b82f6, green: #10b981, amber: #f59e0b, red: #ef4444, purple: #8b5cf6)
 - When displaying details about a specific device, network, or entity, prefer data_table with a "Property" and "Value" column over text_report. For example, device details like name, model, serial, firmware, IP, etc. should be rendered as a two-column table rather than a markdown text block
 - **CRITICAL - For topology/network map queries**: When tool results include getNetworkDevices and LLDP/CDP data (getDeviceLldpCdp or call_meraki_api with /devices/{serial}/lldpCdp), you MUST create a topology card. Build nodes from device data and links from LLDP/CDP neighbor information. Set deviceType based on model prefix (MX→mx, MS→ms, MR→mr, MV→mv, MG→mg, MT→mt). NEVER create a text_report for topology - always use the topology card type.
