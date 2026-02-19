@@ -154,11 +154,13 @@ export function PromptQueue({ onStopProcessing }: Props) {
               </div>
               {(item.status === 'pending' || item.status === 'processing') && (
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    // Always immediately remove the item from the UI
+                    cancelPrompt(item.id)
+                    // For processing items, also send a stop signal to the backend
                     if (item.status === 'processing' && onStopProcessing) {
                       onStopProcessing()
-                    } else {
-                      cancelPrompt(item.id)
                     }
                   }}
                   className="flex-shrink-0 p-0.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded transition-colors"

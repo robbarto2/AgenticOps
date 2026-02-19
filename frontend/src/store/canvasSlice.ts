@@ -22,6 +22,7 @@ interface CanvasState {
   cards: AnyCard[]
   stacks: Record<string, CardStack>
   preStackPositions: Record<string, { x: number; y: number }>
+  preCollapseSizes: Record<string, { width: number; height: number }>
 
   addCard: (card: AnyCard) => void
   removeCard: (cardId: string) => void
@@ -29,9 +30,11 @@ interface CanvasState {
   setNodes: (nodes: Node[]) => void
   setEdges: (edges: Edge[]) => void
   updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void
+  clearCanvas: () => void
   stackByType: () => void
   toggleStack: (stackId: string) => void
   unstackAll: () => void
+  autoLayout: () => void
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -40,6 +43,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   cards: [],
   stacks: {},
   preStackPositions: {},
+  preCollapseSizes: {},
 
   addCard: (card) =>
     set((state) => {
@@ -118,17 +122,52 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       edges: state.edges.filter((e) => e.source !== cardId && e.target !== cardId),
     })),
 
+  clearCanvas: () => set({ cards: [], nodes: [], edges: [], stacks: {}, preStackPositions: {}, preCollapseSizes: {} }),
+
   toggleCardCollapse: (cardId) =>
-    set((state) => ({
-      cards: state.cards.map((c) =>
-        c.id === cardId ? { ...c, collapsed: !c.collapsed } : c
-      ),
-      nodes: state.nodes.map((n) =>
-        n.id === cardId
-          ? { ...n, data: { ...n.data, collapsed: !(n.data as AnyCard).collapsed } }
-          : n
-      ),
-    })),
+    set((state) => {
+      const card = state.cards.find((c) => c.id === cardId)
+      if (!card) return state
+      const node = state.nodes.find((n) => n.id === cardId)
+      const isCollapsing = !card.collapsed
+
+      if (isCollapsing) {
+        // Save current dimensions before collapsing
+        const currentWidth = node?.width ?? (node?.style?.width as number) ?? 650
+        const currentHeight = node?.height ?? (node?.style?.height as number) ?? 380
+        return {
+          cards: state.cards.map((c) =>
+            c.id === cardId ? { ...c, collapsed: true } : c
+          ),
+          nodes: state.nodes.map((n) =>
+            n.id === cardId
+              ? { ...n, data: { ...n.data, collapsed: true }, style: { width: currentWidth, height: 52 }, width: currentWidth, height: 52 }
+              : n
+          ),
+          preCollapseSizes: {
+            ...state.preCollapseSizes,
+            [cardId]: { width: currentWidth, height: currentHeight },
+          },
+        }
+      } else {
+        // Restore saved dimensions on expand
+        const saved = state.preCollapseSizes[cardId]
+        const restoreWidth = saved?.width ?? 650
+        const restoreHeight = saved?.height ?? 380
+        const { [cardId]: _removed, ...remainingCollapseSizes } = state.preCollapseSizes
+        return {
+          cards: state.cards.map((c) =>
+            c.id === cardId ? { ...c, collapsed: false } : c
+          ),
+          nodes: state.nodes.map((n) =>
+            n.id === cardId
+              ? { ...n, data: { ...n.data, collapsed: false }, style: { width: restoreWidth, height: restoreHeight }, width: restoreWidth, height: restoreHeight }
+              : n
+          ),
+          preCollapseSizes: remainingCollapseSizes,
+        }
+      }
+    }),
 
   setNodes: (nodes) => set({ nodes }),
 
@@ -233,7 +272,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         type: 'stackNode',
         position,
         data: newStacks[stackId],
-        style: { width: 280 },
+        style: { width: 420 },
       })
     }
 
@@ -252,48 +291,43 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const stack = state.stacks[stackId]
     if (!stack) return
 
-    const wasExpanded = stack.expanded
-    const updatedStack = { ...stack, expanded: !wasExpanded }
     const cardMap = new Map(state.cards.map((c) => [c.id, c]))
 
-    if (wasExpanded) {
-      // Collapse: remove expanded card nodes, keep stack node
-      const expandedIds = new Set(stack.cardIds)
-      const filteredNodes = state.nodes.filter((n) => !expandedIds.has(n.id))
+    // Expand: remove the stack node, add individual card nodes, dissolve the stack record
+    const CARD_W = 700
+    const CARD_H = 500
+    const GAP = 30
+    const COLS = 2
 
-      set({
-        stacks: { ...state.stacks, [stackId]: updatedStack },
-        nodes: filteredNodes,
-      })
-    } else {
-      // Expand: add card nodes in a 2-col grid near the stack position
-      const CARD_W = 720
-      const CARD_H = 520
-      const GAP = 30
-      const COLS = 2
-      const offsetX = 300 // offset from stack node
+    const expandedNodes: Node[] = stack.cardIds.map((cid, i) => {
+      const col = i % COLS
+      const row = Math.floor(i / COLS)
+      const card = cardMap.get(cid)
+      return {
+        id: cid,
+        type: 'cardNode',
+        position: {
+          x: stack.position.x + col * (CARD_W + GAP),
+          y: stack.position.y + row * (CARD_H + GAP),
+        },
+        data: card ?? {},
+        style: { width: CARD_W, height: CARD_H },
+      }
+    })
 
-      const expandedNodes: Node[] = stack.cardIds.map((cid, i) => {
-        const col = i % COLS
-        const row = Math.floor(i / COLS)
-        const card = cardMap.get(cid)
-        return {
-          id: cid,
-          type: 'cardNode',
-          position: {
-            x: stack.position.x + offsetX + col * (CARD_W + GAP),
-            y: stack.position.y + row * (CARD_H + GAP),
-          },
-          data: card ?? {},
-          style: { width: 700, height: 500 },
-        }
-      })
+    // Remove the stack node from canvas; remove from stacks record and preStackPositions
+    const { [stackId]: _removed, ...remainingStacks } = state.stacks
+    const newPreStackPositions = { ...state.preStackPositions }
+    for (const cid of stack.cardIds) delete newPreStackPositions[cid]
 
-      set({
-        stacks: { ...state.stacks, [stackId]: updatedStack },
-        nodes: [...state.nodes, ...expandedNodes],
-      })
-    }
+    set({
+      stacks: remainingStacks,
+      preStackPositions: newPreStackPositions,
+      nodes: [
+        ...state.nodes.filter((n) => n.id !== stackId),
+        ...expandedNodes,
+      ],
+    })
   },
 
   unstackAll: () => {
@@ -331,6 +365,92 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       stacks: {},
       preStackPositions: {},
       nodes: [...cleanedNodes, ...restoredNodes],
+    })
+  },
+
+  autoLayout: () => {
+    const state = get()
+    const cardMap = new Map(state.cards.map((c) => [c.id, c]))
+
+    // Unstack everything first: collect all card nodes, including those inside stacks
+    const allStackedIds = new Set<string>()
+    for (const stack of Object.values(state.stacks)) {
+      for (const cid of stack.cardIds) allStackedIds.add(cid)
+    }
+
+    // Free card nodes (not currently inside a stack or a stack node itself)
+    const freeCardNodes = state.nodes.filter(
+      (n) => n.type === 'cardNode' && !allStackedIds.has(n.id)
+    )
+
+    // Restore stacked cards as individual card nodes (positions will be overwritten)
+    const restoredNodes: Node[] = []
+    for (const cid of allStackedIds) {
+      const card = cardMap.get(cid)
+      if (!card) continue
+      // Preserve the original node's style if it still exists (e.g. expanded stack), else use defaults
+      const existingNode = state.nodes.find((n) => n.id === cid)
+      restoredNodes.push({
+        id: cid,
+        type: 'cardNode',
+        position: { x: 0, y: 0 }, // overwritten below
+        data: card,
+        style: existingNode?.style ?? { width: 650, height: 380 },
+      })
+    }
+
+    const allCardNodes = [...freeCardNodes, ...restoredNodes]
+
+    const COLS = 3
+    const GAP_X = 40
+    const GAP_Y = 40
+    const CATEGORY_GAP = 80
+    const START_X = 40
+    const START_Y = 40
+
+    // Group by category, preserving insertion order
+    const groups = new Map<string, typeof allCardNodes>()
+    for (const node of allCardNodes) {
+      const card = cardMap.get(node.id)
+      if (!card) continue
+      const category = getCardCategory(card)
+      if (!groups.has(category)) groups.set(category, [])
+      groups.get(category)!.push(node)
+    }
+
+    let currentY = START_Y
+    const updatedPositions: Record<string, { x: number; y: number }> = {}
+
+    for (const nodes of groups.values()) {
+      const rows: (typeof nodes)[] = []
+      for (let i = 0; i < nodes.length; i++) {
+        const row = Math.floor(i / COLS)
+        if (!rows[row]) rows[row] = []
+        rows[row].push(nodes[i])
+      }
+
+      for (const rowNodes of rows) {
+        const maxH = Math.max(...rowNodes.map((n) =>
+          n.height ?? (n.style?.height as number) ?? 380
+        ))
+        let x = START_X
+        for (const node of rowNodes) {
+          const w = node.width ?? (node.style?.width as number) ?? 650
+          updatedPositions[node.id] = { x, y: currentY }
+          x += w + GAP_X
+        }
+        currentY += maxH + GAP_Y
+      }
+      currentY += CATEGORY_GAP - GAP_Y
+    }
+
+    set({
+      stacks: {},
+      preStackPositions: {},
+      nodes: allCardNodes.map((n) => ({
+        ...n,
+        position: updatedPositions[n.id] ?? n.position,
+      })),
     })
   },
 }))

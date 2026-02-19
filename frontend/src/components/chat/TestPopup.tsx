@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useCanvasStore } from '../../store/canvasSlice'
+import { useQueueStore } from '../../store/queueSlice'
 import type { TestDetailCard, TestAgent, TestAlertRule } from '../../types/card'
 
 interface TestMetadata {
@@ -67,6 +68,13 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
     return () => { cancelled = true }
   }, [metadata.testId])
 
+  const handleViewResults = () => {
+    useQueueStore.getState().addPrompt(
+      `Show me the test results and performance metrics for "${testName}" (test ID: ${metadata.testId})`
+    )
+    onClose()
+  }
+
   const handleAddToCanvas = () => {
     const card: TestDetailCard = {
       id: `card-test-${metadata.testId}-${Date.now()}`,
@@ -112,19 +120,17 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
       <div className="absolute inset-0 bg-black/40" />
       <div
         ref={popupRef}
-        className="relative bg-white dark:bg-gray-900 border-2 border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl"
+        className="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl"
         style={{ width: popupWidth, maxHeight: '85vh', overflow: 'auto' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-2 pr-2">
-            <p className="text-sm font-semibold text-gray-900 dark:text-gray-200 truncate">
-              {testName}
-            </p>
-            <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
+        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center gap-1.5 pr-2 min-w-0">
+            <p className="text-xs font-semibold text-gray-900 dark:text-gray-200 truncate">{testName}</p>
+            <span className={`flex-shrink-0 px-1.5 py-0.5 text-xs rounded border ${
               metadata.enabled
-                ? 'bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-500/20'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-700'
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
             }`}>
               {metadata.enabled ? 'Enabled' : 'Disabled'}
             </span>
@@ -140,114 +146,132 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
         </div>
 
         {loading && (
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
-              <span className="text-sm text-gray-500">Loading test details...</span>
-            </div>
+          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800 flex items-center gap-2">
+            <div className="w-3 h-3 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+            <span className="text-xs text-gray-500">Loading test details...</span>
           </div>
         )}
 
-        {/* Test metadata */}
-        <div className="px-4 py-3 space-y-2.5">
+        {/* Metadata */}
+        <div className="px-3 py-2 space-y-2">
           <div>
-            <span className="text-sm text-gray-600 dark:text-gray-500">Test Type</span>
-            <p className="text-sm text-gray-800 dark:text-gray-300">{metadata.testType}</p>
+            <span className="text-xs text-gray-500">Test Type</span>
+            <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.testType}</p>
           </div>
 
           <div>
-            <span className="text-sm text-gray-600 dark:text-gray-500">Target</span>
-            <p className="text-sm text-gray-800 dark:text-gray-300 font-mono break-all">{metadata.target}</p>
+            <span className="text-xs text-gray-500">Target</span>
+            <p className="text-xs text-gray-800 dark:text-gray-300 font-mono break-all">{metadata.target}</p>
           </div>
 
           <div>
-            <span className="text-sm text-gray-600 dark:text-gray-500">Test Interval</span>
-            <p className="text-sm text-gray-800 dark:text-gray-300">Every {formatInterval(metadata.interval)}</p>
+            <span className="text-xs text-gray-500">Interval</span>
+            <p className="text-xs text-gray-800 dark:text-gray-300">Every {formatInterval(metadata.interval)}</p>
           </div>
 
           <div>
-            <span className="text-sm text-gray-600 dark:text-gray-500">Agents</span>
-            <p className="text-sm text-gray-800 dark:text-gray-300">{metadata.agentCount} location{metadata.agentCount !== 1 ? 's' : ''}</p>
+            <span className="text-xs text-gray-500">Agents</span>
+            <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.agentCount} location{metadata.agentCount !== 1 ? 's' : ''}</p>
           </div>
 
           {testDetails?.description && (
             <div>
-              <span className="text-sm text-gray-600 dark:text-gray-500">Description</span>
-              <p className="text-sm text-gray-800 dark:text-gray-300">{testDetails.description}</p>
+              <span className="text-xs text-gray-500">Description</span>
+              <p className="text-xs text-gray-800 dark:text-gray-300">{testDetails.description}</p>
             </div>
-          )}
-
-          {testDetails?.metrics && (
-            <>
-              {testDetails.metrics.availability !== undefined && (
-                <div>
-                  <span className="text-sm text-gray-600 dark:text-gray-500">Availability (24h)</span>
-                  <p className={`text-sm font-medium ${
-                    testDetails.metrics.availability >= 99
-                      ? 'text-green-600 dark:text-green-400'
-                      : testDetails.metrics.availability >= 95
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-red-600 dark:text-red-400'
-                  }`}>
-                    {testDetails.metrics.availability.toFixed(2)}%
-                  </p>
-                </div>
-              )}
-
-              {testDetails.metrics.avgResponseTime !== undefined && (
-                <div>
-                  <span className="text-sm text-gray-600 dark:text-gray-500">Avg Response Time (24h)</span>
-                  <p className="text-sm text-gray-800 dark:text-gray-300">
-                    {testDetails.metrics.avgResponseTime.toFixed(0)} ms
-                  </p>
-                </div>
-              )}
-            </>
           )}
 
           {testDetails?.alertRules && testDetails.alertRules.length > 0 && (
             <div>
-              <span className="text-sm text-gray-600 dark:text-gray-500">Alert Rules</span>
-              <p className="text-sm text-gray-800 dark:text-gray-300">
+              <span className="text-xs text-gray-500">Alert Rules</span>
+              <p className="text-xs text-gray-800 dark:text-gray-300">
                 {testDetails.alertRules.length} rule{testDetails.alertRules.length !== 1 ? 's' : ''} configured
               </p>
             </div>
           )}
 
           <div>
-            <span className="text-sm text-gray-600 dark:text-gray-500">Test ID</span>
-            <p className="text-sm text-gray-600 dark:text-gray-400 font-mono">{metadata.testId}</p>
+            <span className="text-xs text-gray-500">Test ID</span>
+            <p className="text-xs text-gray-600 dark:text-gray-400 font-mono">{metadata.testId}</p>
           </div>
         </div>
+
+        {/* Performance metrics tiles */}
+        {testDetails?.metrics && (
+          <>
+            <div className="border-t border-gray-200 dark:border-gray-800" />
+            <div className="px-3 py-2">
+              <span className="text-xs text-gray-500">Performance (24h)</span>
+              <div className="grid grid-cols-2 gap-2 mt-1.5">
+                {testDetails.metrics.availability !== undefined && (
+                  <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
+                    <p className={`text-lg font-semibold ${
+                      testDetails.metrics.availability >= 99 ? 'text-emerald-400' :
+                      testDetails.metrics.availability >= 95 ? 'text-amber-400' : 'text-red-400'
+                    }`}>{testDetails.metrics.availability.toFixed(1)}%</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Availability</p>
+                  </div>
+                )}
+                {testDetails.metrics.avgResponseTime !== undefined && (
+                  <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
+                    <p className={`text-lg font-semibold ${
+                      testDetails.metrics.avgResponseTime < 200 ? 'text-emerald-400' :
+                      testDetails.metrics.avgResponseTime < 500 ? 'text-amber-400' : 'text-red-400'
+                    }`}>{testDetails.metrics.avgResponseTime.toFixed(0)}ms</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Avg Response</p>
+                  </div>
+                )}
+                {testDetails.metrics.maxLoss !== undefined && (
+                  <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
+                    <p className={`text-lg font-semibold ${
+                      testDetails.metrics.maxLoss < 0.1 ? 'text-emerald-400' :
+                      testDetails.metrics.maxLoss < 1   ? 'text-amber-400' : 'text-red-400'
+                    }`}>{testDetails.metrics.maxLoss.toFixed(2)}%</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Max Loss</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Divider */}
         <div className="border-t border-gray-200 dark:border-gray-800" />
 
-        {/* Action buttons */}
-        <div className="px-4 py-3 space-y-2.5">
+        {/* Actions */}
+        <div className="px-3 py-2 space-y-1.5">
           <button
-            onClick={handleAddToCanvas}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 dark:hover:bg-purple-500/20 border border-purple-200 dark:border-purple-500/20 rounded-md transition-colors cursor-pointer"
+            onClick={handleViewResults}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-md transition-colors cursor-pointer"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
             </svg>
-            Add to Canvas
+            View Test Results
           </button>
 
-          {getThousandEyesUrl() && (
-            <a
-              href={getThousandEyesUrl()!}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md transition-colors"
+          <div className="flex gap-1.5">
+            <button
+              onClick={handleAddToCanvas}
+              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-md transition-colors cursor-pointer"
             >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              View in ThousandEyes
-            </a>
-          )}
+              Add to Canvas
+            </button>
+
+            {getThousandEyesUrl() && (
+              <a href={getThousandEyesUrl()!} target="_blank" rel="noopener noreferrer"
+                className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md transition-colors"
+              >
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                </svg>
+                ThousandEyes
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </div>,

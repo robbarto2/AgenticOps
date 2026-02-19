@@ -4,6 +4,7 @@ import { HoverPopup } from './HoverPopup'
 import { DevicePopup } from './DevicePopup'
 import { TestPopup } from './TestPopup'
 import { ClientPopup } from './ClientPopup'
+import { UplinkPopup } from './UplinkPopup'
 
 interface Props {
   tableData: TableData
@@ -14,16 +15,19 @@ function StatusBadge({ status }: { status: string }) {
   let dotClass: string
   let pillClass: string
 
-  if (s === 'online' || s === 'enabled') {
+  if (s === 'online' || s === 'enabled' || s === 'active') {
     dotClass = 'bg-emerald-500'
     pillClass = 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 ring-emerald-500/40'
+  } else if (s === 'ready') {
+    dotClass = 'bg-blue-500'
+    pillClass = 'bg-blue-500/20 text-blue-600 dark:text-blue-400 ring-blue-500/40'
   } else if (s === 'alerting') {
     dotClass = 'bg-amber-500'
     pillClass = 'bg-amber-500/20 text-amber-600 dark:text-amber-400 ring-amber-500/40'
-  } else if (s === 'offline') {
+  } else if (s === 'offline' || s === 'failed') {
     dotClass = 'bg-red-500'
     pillClass = 'bg-red-500/20 text-red-600 dark:text-red-400 ring-red-500/40'
-  } else if (s === 'dormant' || s === 'disabled') {
+  } else if (s === 'dormant' || s === 'disabled' || s === 'not connected') {
     dotClass = 'bg-gray-400'
     pillClass = 'bg-gray-500/20 text-gray-600 dark:text-gray-400 ring-gray-500/40'
   } else {
@@ -32,8 +36,8 @@ function StatusBadge({ status }: { status: string }) {
   }
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${pillClass}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset whitespace-nowrap ${pillClass}`}>
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`} />
       {status}
     </span>
   )
@@ -73,14 +77,28 @@ export function InteractiveTable({ tableData }: Props) {
       <table className="w-full border-collapse text-[0.8125rem]">
         <thead>
           <tr>
-            {tableData.columns.map((col) => (
-              <th
-                key={col}
-                className="bg-gray-100 dark:bg-[#141c2b] px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-[#1e2636] whitespace-nowrap"
-              >
-                {col}
-              </th>
-            ))}
+            {tableData.columns.map((col) => {
+              const colLower = col.toLowerCase()
+              const dotColor =
+                colLower === 'active' ? 'bg-emerald-500' :
+                colLower === 'offline' || colLower === 'failed' ? 'bg-red-500' :
+                colLower === 'alerting' ? 'bg-amber-500' :
+                colLower === 'not connected' ? 'bg-gray-400' :
+                null
+              return (
+                <th
+                  key={col}
+                  className="bg-gray-100 dark:bg-[#141c2b] px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-[#1e2636] whitespace-nowrap"
+                >
+                  {dotColor ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+                      {col}
+                    </span>
+                  ) : col}
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>
@@ -92,16 +110,16 @@ export function InteractiveTable({ tableData }: Props) {
               }
               if (hoveredRowIdx === idx) {
                 if (statusType === 'error') {
-                  return 'bg-red-500/15 shadow-[inset_0_0_12px_rgba(239,68,68,0.12)]'
+                  return 'bg-red-500/25 border-l-[3px] border-l-red-500'
                 } else if (statusType === 'warning') {
-                  return 'bg-amber-500/15 shadow-[inset_0_0_12px_rgba(245,158,11,0.12)]'
+                  return 'bg-amber-500/25 border-l-[3px] border-l-amber-500'
                 }
                 return 'bg-blue-500/5 shadow-[inset_0_0_12px_rgba(59,130,246,0.08)]'
               }
               if (statusType === 'error') {
-                return 'bg-red-500/5'
+                return 'bg-red-500/15 border-l-[3px] border-l-red-500'
               } else if (statusType === 'warning') {
-                return 'bg-amber-500/5'
+                return 'bg-amber-500/15 border-l-[3px] border-l-amber-500'
               }
               return ''
             }
@@ -143,6 +161,12 @@ export function InteractiveTable({ tableData }: Props) {
           <ClientPopup
             metadata={popupRow.metadata as any}
             clientName={popupRow.cells[0]}
+            onClose={closePopup}
+          />
+        ) : tableData.entity_type === 'uplink' ? (
+          <UplinkPopup
+            metadata={popupRow.metadata as any}
+            deviceName={popupRow.cells[0]}
             onClose={closePopup}
           />
         ) : anchorRect ? (

@@ -2,6 +2,14 @@
 @plugin "@tailwindcss/typography";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Remove ReactFlow's selected-node outline — cards use their own hover resize handles */
+.react-flow__node.selected,
+.react-flow__node:focus,
+.react-flow__node:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 @layer base {
   :root {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -129,6 +137,10 @@
 .prose tbody td {
   padding: 0.4rem 0.75rem;
   border-bottom: 1px solid var(--border-primary);
+}
+
+.prose tbody tr {
+  cursor: pointer;
 }
 
 .prose tbody tr:hover {

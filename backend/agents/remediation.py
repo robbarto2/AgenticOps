@@ -42,6 +42,8 @@ async def remediation_node(state: AgentState, writer: StreamWriter) -> dict:
         model=settings.model_name,
         api_key=settings.anthropic_api_key,
         max_tokens=4096,
+        timeout=120,
+        max_retries=1,
     )
 
     tools = build_langchain_tools("remediation")

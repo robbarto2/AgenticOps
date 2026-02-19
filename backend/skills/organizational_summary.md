@@ -16,12 +16,14 @@ organizational summary, org summary, organization overview, org overview, dashbo
 ## Analysis
 - **Networks**: Count total networks
 - **Clients**: Sum total connected clients across all networks/devices
-- **Devices by Type**:
-  - Count MX (security appliances/routers)
-  - Count MR (wireless access points)
-  - Count MS (switches)
-  - Count MV (cameras)
-  - Count other device types
+- **Devices by Type** (count ALL types present in the data — do NOT omit any):
+  - MX / Z4 (security appliances/routers)
+  - MR / CW (wireless access points)
+  - MS / C9 (switches)
+  - MV (cameras)
+  - MT (sensors)
+  - MG (cellular gateways)
+  - Any other model prefixes found in the data
 - **Health Score**:
   - Calculate based on device online status, uplink status, alert severity
   - Healthy: >90%, Warning: 70-90%, Critical: <70%
@@ -58,12 +60,14 @@ organizational summary, org summary, organization overview, org overview, dashbo
       "prompt": "List all connected clients with details"
     },
     "devices": {
-      "total": 45,
+      "total": 146,
       "byType": [
-        { "type": "MX", "count": 5, "icon": "🔒", "prompt": "Show me all MX security appliances" },
-        { "type": "MR", "count": 20, "icon": "📡", "prompt": "Show me all MR access points" },
-        { "type": "MS", "count": 15, "icon": "🔌", "prompt": "Show me all MS switches" },
-        { "type": "MV", "count": 5, "icon": "📹", "prompt": "Show me all MV cameras" }
+        { "type": "Switches", "count": 49, "icon": "🔌", "prompt": "Show me all switches" },
+        { "type": "Access Points", "count": 30, "icon": "📡", "prompt": "Show me all access points" },
+        { "type": "Appliances", "count": 27, "icon": "🔒", "prompt": "Show me all security appliances" },
+        { "type": "Cameras", "count": 16, "icon": "📹", "prompt": "Show me all cameras" },
+        { "type": "Sensors", "count": 16, "icon": "🌡️", "prompt": "Show me all sensors" },
+        { "type": "Gateways", "count": 4, "icon": "📶", "prompt": "Show me all cellular gateways" }
       ]
     },
     "health": {
@@ -96,4 +100,5 @@ organizational summary, org summary, organization overview, org overview, dashbo
 - All metrics should be current/real-time from the Meraki API
 - Interactive prompts allow users to drill into any metric
 - Health calculation should be transparent and based on multiple factors
-- Device icons: MX=🔒, MR=📡, MS=🔌, MV=📹, others as appropriate
+- Device icons: Appliances=🔒, Access Points=📡, Switches=🔌, Cameras=📹, Sensors=🌡️, Gateways=📶
+- **CRITICAL**: Include ALL device types found in the data. Do NOT omit any category. Use the `productType` field to group devices, not model prefixes. Count each productType exactly from the API response — do NOT estimate or round.

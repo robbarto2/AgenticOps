@@ -30,7 +30,42 @@ async def _call_mcp_tool(tool_name: str, **kwargs) -> str:
     result = await mcp_manager.call_tool(tool_name, arguments)
     if "error" in result:
         return f"Error: {result['error']}"
-    return result.get("content", json.dumps(result))
+    content = result.get("content", json.dumps(result))
+
+    # Inject an explicit item count so the LLM doesn't have to count
+    # items in large JSON arrays (which is error-prone and inconsistent).
+    content = _inject_item_count(content)
+
+    return content
+
+
+def _inject_item_count(content: str) -> str:
+    """If content is a JSON array or truncated response, prepend the total count."""
+    try:
+        parsed = json.loads(content)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return content
+
+    if isinstance(parsed, list):
+        return f"[Total items returned: {len(parsed)}]\n{content}"
+
+    if isinstance(parsed, dict):
+        # Handle MCP truncated responses that include a total count
+        total = parsed.get("_total_count")
+        preview = parsed.get("_preview")
+        if parsed.get("_response_truncated") and total is not None:
+            preview_count = len(preview) if isinstance(preview, list) else "?"
+            return (
+                f"[Total items: {total} (response truncated, showing preview of {preview_count})]\n"
+                f"{content}"
+            )
+        # Handle wrapper objects with a data/results/items list
+        for key in ("data", "results", "items", "tests", "networks"):
+            inner = parsed.get(key)
+            if isinstance(inner, list) and len(inner) > 0:
+                return f"[Total items in '{key}': {len(inner)}]\n{content}"
+
+    return content
 
 
 def _make_invoke(tool_name: str):

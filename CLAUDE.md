@@ -48,7 +48,7 @@ AgenticOps/
         ├── App.tsx               # Root component
         ├── components/
         │   ├── layout/           # AppLayout (split pane), TopBar
-        │   ├── chat/             # ChatPanel, ChatMessage, ChatInput, AgentIndicator, ConfirmationModal
+        │   ├── chat/             # ChatPanel, ChatMessage, ChatInput, AgentIndicator, ConfirmationModal, MarkdownRowPopup
         │   ├── canvas/           # CanvasPanel (ReactFlow wrapper)
         │   └── cards/            # CardNode + 6 card type components
         ├── hooks/                # useWebSocket, useChat, useCanvas

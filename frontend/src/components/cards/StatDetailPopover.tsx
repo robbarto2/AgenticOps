@@ -6,6 +6,7 @@ export type DetailType = 'devices' | 'clients' | 'ssids'
 interface Props {
   networkId: string
   detailType: DetailType
+  statusFilter?: 'active' | 'inactive'
   anchorEl: HTMLElement
   onClose: () => void
 }
@@ -36,6 +37,14 @@ const COLUMNS: Record<DetailType, string[]> = {
   ssids: ['Name', 'Auth Mode', 'Enabled'],
 }
 
+function statusColor(s: string): string {
+  const lower = s.toLowerCase()
+  if (lower === 'online') return 'text-emerald-400'
+  if (lower === 'alerting') return 'text-amber-400'
+  if (lower === 'offline' || lower === 'dormant') return 'text-red-400'
+  return 'text-gray-400'
+}
+
 function renderCells(type: DetailType, row: DeviceRow | ClientRow | SsidRow): string[] {
   switch (type) {
     case 'devices': {
@@ -53,7 +62,7 @@ function renderCells(type: DetailType, row: DeviceRow | ClientRow | SsidRow): st
   }
 }
 
-export function StatDetailPopover({ networkId, detailType, anchorEl, onClose }: Props) {
+export function StatDetailPopover({ networkId, detailType, statusFilter, anchorEl, onClose }: Props) {
   const [data, setData] = useState<(DeviceRow | ClientRow | SsidRow)[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -79,7 +88,8 @@ export function StatDetailPopover({ networkId, detailType, anchorEl, onClose }: 
     setLoading(true)
     setError(null)
 
-    fetch(`/api/entity/network/${networkId}/${detailType}`)
+    const params = statusFilter ? `?status=${statusFilter}` : ''
+    fetch(`/api/entity/network/${networkId}/${detailType}${params}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
@@ -98,7 +108,7 @@ export function StatDetailPopover({ networkId, detailType, anchorEl, onClose }: 
       })
 
     return () => { cancelled = true }
-  }, [networkId, detailType])
+  }, [networkId, detailType, statusFilter])
 
   // Position near anchor element
   const rect = anchorEl.getBoundingClientRect()
@@ -116,7 +126,9 @@ export function StatDetailPopover({ networkId, detailType, anchorEl, onClose }: 
   }
 
   const columns = COLUMNS[detailType]
-  const title = detailType === 'devices' ? 'Devices' : detailType === 'clients' ? 'Clients' : 'SSIDs'
+  const title = detailType === 'devices'
+    ? (statusFilter === 'active' ? 'Active Devices' : statusFilter === 'inactive' ? 'Inactive Devices' : 'Devices')
+    : detailType === 'clients' ? 'Clients' : 'SSIDs'
 
   return createPortal(
     <div
@@ -158,15 +170,25 @@ export function StatDetailPopover({ networkId, detailType, anchorEl, onClose }: 
               </tr>
             </thead>
             <tbody>
-              {data.map((row, i) => (
-                <tr key={i} className="border-b border-gray-200/50 dark:border-gray-800/50 last:border-0">
-                  {renderCells(detailType, row).map((cell, j) => (
-                    <td key={j} className="py-1 px-1.5 text-gray-700 dark:text-gray-300 truncate max-w-[120px]">
-                      {cell}
-                    </td>
-                  ))}
-                </tr>
-              ))}
+              {data.map((row, i) => {
+                const cells = renderCells(detailType, row)
+                return (
+                  <tr key={i} className="border-b border-gray-200/50 dark:border-gray-800/50 last:border-0">
+                    {cells.map((cell, j) => {
+                      // Apply status coloring to the last column for device rows
+                      const isStatusCol = detailType === 'devices' && j === cells.length - 1
+                      return (
+                        <td
+                          key={j}
+                          className={`py-1 px-1.5 truncate max-w-[120px] ${isStatusCol ? statusColor(cell) + ' font-medium' : 'text-gray-700 dark:text-gray-300'}`}
+                        >
+                          {cell}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         ) : (

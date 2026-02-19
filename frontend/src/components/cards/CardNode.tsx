@@ -49,7 +49,7 @@ function cardAccentColor(type: string): string {
   }
 }
 
-function CardNodeInner({ data, selected }: NodeProps) {
+function CardNodeInner({ data }: NodeProps) {
   const card = data as unknown as AnyCard
   const removeCard = useCanvasStore((s) => s.removeCard)
   const toggleCollapse = useCanvasStore((s) => s.toggleCardCollapse)
@@ -97,21 +97,18 @@ function CardNodeInner({ data, selected }: NodeProps) {
   return (
     <>
       <NodeResizer
-        isVisible={selected}
+        isVisible={!card.collapsed}
         minWidth={400}
         minHeight={200}
         lineStyle={{
-          borderColor: '#22d3ee',
-          borderWidth: 1.5,
-          borderStyle: 'dashed',
+          borderColor: 'transparent',
+          borderWidth: 0,
         }}
         handleStyle={{
-          backgroundColor: '#22d3ee',
-          width: 7,
-          height: 7,
-          borderRadius: 1,
+          backgroundColor: 'transparent',
+          width: 12,
+          height: 12,
           border: 'none',
-          opacity: 0.85,
         }}
       />
       <div className="w-full h-full p-[3px]">

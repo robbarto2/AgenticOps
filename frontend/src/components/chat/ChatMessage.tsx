@@ -1,8 +1,10 @@
+import { useState, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { formatTimestamp, agentDisplayName } from '../../utils/formatters'
 import type { ChatMessage as ChatMessageType, TableData } from '../../types/chat'
 import { InteractiveTable } from './InteractiveTable'
+import { MarkdownRowPopup } from './MarkdownRowPopup'
 
 interface Props {
   message: ChatMessageType
@@ -38,6 +40,35 @@ function stripMatchingTables(content: string, tableData: TableData[]): string {
 export function ChatMessage({ message }: Props) {
   const isUser = message.role === 'user'
   const hasTableData = message.tableData && message.tableData.length > 0
+  const [popupData, setPopupData] = useState<{ headers: string[]; cells: string[] } | null>(null)
+  const proseRef = useRef<HTMLDivElement>(null)
+
+  const handleProseClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Walk up from click target to find a <td> inside a <tbody>
+    let el = e.target as HTMLElement | null
+    let td: HTMLElement | null = null
+    while (el && el !== e.currentTarget) {
+      if (el.tagName === 'TD') { td = el; break }
+      el = el.parentElement
+    }
+    if (!td) return
+
+    const tr = td.closest('tbody > tr') as HTMLTableRowElement | null
+    if (!tr) return
+
+    const table = tr.closest('table')
+    if (!table) return
+
+    const thead = table.querySelector('thead')
+    if (!thead) return
+
+    const headers = Array.from(thead.querySelectorAll('th')).map((th) => (th.textContent || '').trim())
+    const cells = Array.from(tr.querySelectorAll('td')).map((cell) => (cell.textContent || '').trim())
+
+    if (headers.length > 0 && cells.length > 0) {
+      setPopupData({ headers, cells })
+    }
+  }, [])
 
   // Strip tables from markdown that will be rendered as InteractiveTable
   const displayContent = hasTableData
@@ -75,11 +106,23 @@ export function ChatMessage({ message }: Props) {
           </div>
 
           {/* Markdown content */}
-          <div className="text-sm text-gray-900 dark:text-gray-100 prose dark:prose-invert prose-sm max-w-none overflow-x-auto">
+          <div
+            ref={proseRef}
+            onClick={handleProseClick}
+            className="text-sm text-gray-900 dark:text-gray-100 prose dark:prose-invert prose-sm max-w-none overflow-x-auto"
+          >
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {displayContent}
             </ReactMarkdown>
           </div>
+
+          {popupData && (
+            <MarkdownRowPopup
+              headers={popupData.headers}
+              cells={popupData.cells}
+              onClose={() => setPopupData(null)}
+            />
+          )}
 
           {/* Interactive tables — rendered outside prose to avoid style conflicts */}
           {message.tableData?.map((td) => (

@@ -152,7 +152,7 @@ function StackNodeInner({ data }: NodeProps) {
     <div
       ref={nodeRef}
       className="relative cursor-pointer select-none"
-      onClick={() => toggleStack(stack.id)}
+      onDoubleClick={() => toggleStack(stack.id)}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -178,7 +178,7 @@ function StackNodeInner({ data }: NodeProps) {
               {stack.label}
             </div>
             <div className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-              {count} {count === 1 ? 'card' : 'cards'} • {stack.expanded ? 'Click to collapse' : 'Click to expand'}
+              {count} {count === 1 ? 'card' : 'cards'} • Double-click to expand
             </div>
           </div>
           <span

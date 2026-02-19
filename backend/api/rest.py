@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from api.models import (
     ChannelUtilization,
@@ -14,6 +16,7 @@ from api.models import (
     EntityStatsResponse,
     HealthResponse,
     LldpCdpNeighbor,
+    ProblemDevice,
     SkillInfo,
     SkillsResponse,
     SsidDetail,
@@ -62,74 +65,192 @@ async def entity_stats(entity_type: str, entity_id: str) -> EntityStatsResponse:
     if not mcp_manager.meraki_connected:
         raise HTTPException(status_code=503, detail="Meraki MCP not connected")
 
-    device_count = 0
-    client_count = 0
-    ssid_count = 0
+    # Fetch all stats in parallel.  The MCP manager's throttle lock
+    # serializes the actual API calls ~0.5s apart, but asyncio.gather
+    # lets responses overlap so total time ≈ 1.5s + longest single call
+    # instead of the sum of all calls.  Results are cached for 1 hour,
+    # so repeated popup opens are instant.
+    #
+    # Return -1 for any stat that failed so the frontend can distinguish
+    # "actually zero" from "couldn't fetch".
 
-    # Fetch device count
-    try:
-        result = await mcp_manager.call_tool("getNetworkDevices", {"networkId": entity_id})
-        if "error" not in result:
-            content = result.get("content", "")
-            parsed = _parse_json(content)
-            if isinstance(parsed, list):
-                device_count = len(parsed)
-    except Exception:
-        logger.warning("Failed to fetch devices for %s", entity_id)
+    async def _fetch_devices() -> tuple[int, str | None]:
+        """Fetch devices and return (count, location)."""
+        try:
+            result = await mcp_manager.call_tool("getNetworkDevices", {"networkId": entity_id})
+            if "error" not in result:
+                parsed = _parse_json(result.get("content", ""))
+                devices = _unwrap_list(parsed)
+                if devices is not None:
+                    count = len(devices)
+                    # Extract location from first device that has an address
+                    location = None
+                    for d in devices:
+                        if isinstance(d, dict):
+                            addr = d.get("address") or d.get("lat")
+                            if addr and isinstance(addr, str) and addr.strip():
+                                location = addr.strip()
+                                break
+                    return count, location
+            logger.warning("Device stats error for %s: %s", entity_id, result.get("error", "parse failed"))
+        except Exception:
+            logger.warning("Failed to fetch devices for %s", entity_id, exc_info=True)
+        return -1, None
 
-    # Fetch client count
-    try:
-        result = await mcp_manager.call_tool("getNetworkClients", {"networkId": entity_id, "timespan": "86400"})
-        if "error" not in result:
-            content = result.get("content", "")
-            parsed = _parse_json(content)
-            if isinstance(parsed, list):
-                client_count = len(parsed)
-    except Exception:
-        logger.warning("Failed to fetch clients for %s", entity_id)
+    async def _fetch_device_statuses() -> tuple[int, int, int, list[ProblemDevice]]:
+        """Fetch org device statuses and filter by network ID."""
+        try:
+            # Fetch ALL org device statuses (no filter) — this matches
+            # the discovery agent's call so it's typically a cache hit.
+            # Filtering by networkIds in the API parameters doesn't work
+            # reliably through call_meraki_api, so we filter client-side.
+            result = await mcp_manager.call_tool(
+                "call_meraki_api",
+                {
+                    "section": "organizations",
+                    "method": "getOrganizationDevicesStatuses",
+                    "parameters": {},
+                },
+            )
+            if "error" not in result:
+                parsed = _parse_json(result.get("content", ""))
+                devices = _unwrap_list(parsed)
+                if devices is not None:
+                    online = offline = alerting = 0
+                    problems: list[ProblemDevice] = []
+                    for d in devices:
+                        if not isinstance(d, dict):
+                            continue
+                        # Filter to only devices in this network
+                        if d.get("networkId") != entity_id:
+                            continue
+                        status = (d.get("status") or "").lower()
+                        if status == "online":
+                            online += 1
+                        elif status in ("offline", "dormant"):
+                            offline += 1
+                            problems.append(ProblemDevice(
+                                name=d.get("name") or d.get("serial", ""),
+                                model=d.get("model", ""),
+                                serial=d.get("serial", ""),
+                                status=d.get("status", "offline"),
+                            ))
+                        elif status == "alerting":
+                            alerting += 1
+                            problems.append(ProblemDevice(
+                                name=d.get("name") or d.get("serial", ""),
+                                model=d.get("model", ""),
+                                serial=d.get("serial", ""),
+                                status="alerting",
+                            ))
+                    return online, offline, alerting, problems
+            logger.warning("Device status error for %s: %s", entity_id, result.get("error", "parse failed"))
+        except Exception:
+            logger.warning("Failed to fetch device statuses for %s", entity_id, exc_info=True)
+        return -1, -1, -1, []
 
-    # Fetch SSID count
-    try:
-        result = await mcp_manager.call_tool("getNetworkWirelessSsids", {"networkId": entity_id})
-        if "error" not in result:
-            content = result.get("content", "")
-            parsed = _parse_json(content)
-            if isinstance(parsed, list):
-                # Only count enabled SSIDs
-                ssid_count = sum(1 for s in parsed if isinstance(s, dict) and s.get("enabled", False))
-    except Exception:
-        logger.warning("Failed to fetch SSIDs for %s", entity_id)
+    async def _count_clients() -> int:
+        try:
+            result = await mcp_manager.call_tool("getNetworkClients", {"networkId": entity_id, "timespan": "86400"})
+            if "error" not in result:
+                parsed = _parse_json(result.get("content", ""))
+                clients = _unwrap_list(parsed)
+                if clients is not None:
+                    return len(clients)
+            logger.warning("Client stats error for %s: %s", entity_id, result.get("error", "parse failed"))
+        except Exception:
+            logger.warning("Failed to fetch clients for %s", entity_id, exc_info=True)
+        return -1
+
+    async def _count_ssids() -> int:
+        try:
+            result = await mcp_manager.call_tool("getNetworkWirelessSsids", {"networkId": entity_id})
+            if "error" not in result:
+                parsed = _parse_json(result.get("content", ""))
+                ssids = _unwrap_list(parsed)
+                if ssids is not None:
+                    return sum(1 for s in ssids if isinstance(s, dict) and s.get("enabled", False))
+            logger.warning("SSID stats error for %s: %s", entity_id, result.get("error", "parse failed"))
+        except Exception:
+            logger.warning("Failed to fetch SSIDs for %s", entity_id, exc_info=True)
+        return -1
+
+    (device_count, location), (online_count, offline_count, alerting_count, problem_devices), client_count, ssid_count = await asyncio.gather(
+        _fetch_devices(),
+        _fetch_device_statuses(),
+        _count_clients(),
+        _count_ssids(),
+    )
 
     return EntityStatsResponse(
         deviceCount=device_count,
         clientCount=client_count,
         ssidCount=ssid_count,
+        onlineCount=online_count,
+        offlineCount=offline_count,
+        alertingCount=alerting_count,
+        location=location,
+        problemDevices=problem_devices,
     )
 
 
 @router.get("/entity/network/{network_id}/devices", response_model=list[DeviceDetail])
-async def network_devices(network_id: str) -> list[DeviceDetail]:
-    """Fetch devices for a network."""
+async def network_devices(
+    network_id: str,
+    status: str | None = Query(None, description="Filter: 'active' (online) or 'inactive' (offline/alerting)"),
+) -> list[DeviceDetail]:
+    """Fetch devices for a network with real status from org-level statuses."""
     if not mcp_manager.meraki_connected:
         raise HTTPException(status_code=503, detail="Meraki MCP not connected")
 
     try:
-        result = await mcp_manager.call_tool("getNetworkDevices", {"networkId": network_id})
-        if "error" in result:
-            raise HTTPException(status_code=502, detail=result["error"])
-        parsed = _parse_json(result.get("content", ""))
-        if not isinstance(parsed, list):
+        # Fetch device list and org-level statuses in parallel
+        dev_result, status_result = await asyncio.gather(
+            mcp_manager.call_tool("getNetworkDevices", {"networkId": network_id}),
+            mcp_manager.call_tool("call_meraki_api", {
+                "section": "organizations",
+                "method": "getOrganizationDevicesStatuses",
+                "parameters": {},
+            }),
+        )
+
+        if "error" in dev_result:
+            raise HTTPException(status_code=502, detail=dev_result["error"])
+
+        devices = _unwrap_list(_parse_json(dev_result.get("content", "")))
+        if not devices:
             return []
-        return [
-            DeviceDetail(
-                name=d.get("name") or d.get("serial", ""),
+
+        # Build serial → status map from org-level statuses
+        status_map: dict[str, str] = {}
+        if "error" not in status_result:
+            all_statuses = _unwrap_list(_parse_json(status_result.get("content", "")))
+            if all_statuses:
+                for s in all_statuses:
+                    if isinstance(s, dict) and s.get("serial"):
+                        status_map[s["serial"]] = s.get("status", "unknown")
+
+        result_devices = []
+        for d in devices:
+            if not isinstance(d, dict):
+                continue
+            serial = d.get("serial", "")
+            device_status = status_map.get(serial, "unknown")
+
+            # Apply status filter
+            if status == "active" and device_status.lower() != "online":
+                continue
+            if status == "inactive" and device_status.lower() not in ("offline", "alerting", "dormant"):
+                continue
+
+            result_devices.append(DeviceDetail(
+                name=d.get("name") or serial,
                 model=d.get("model", ""),
-                serial=d.get("serial", ""),
-                status=d.get("status", "unknown"),
-            )
-            for d in parsed
-            if isinstance(d, dict)
-        ]
+                serial=serial,
+                status=device_status,
+            ))
+
+        return result_devices
     except HTTPException:
         raise
     except Exception:
@@ -365,4 +486,45 @@ def _parse_json(content: str | list | dict) -> object | None:
             return json.loads(content)
         except (json.JSONDecodeError, ValueError):
             return None
+    return None
+
+
+def _unwrap_list(parsed: object) -> list | None:
+    """Unwrap a parsed MCP result into a list.
+
+    Handles truncated responses from the MCP server which wrap large results
+    in a dict with ``_response_truncated`` / ``_full_response_cached``.
+    """
+    if isinstance(parsed, list):
+        return parsed
+    if not isinstance(parsed, dict):
+        return None
+
+    # Truncated response — try to read full data from cached file
+    if parsed.get("_response_truncated") and parsed.get("_full_response_cached"):
+        filepath = parsed["_full_response_cached"]
+        if not os.path.isabs(filepath):
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            filepath = os.path.join(project_root, "..", "Meraki Magic MCP", filepath)
+        try:
+            if os.path.exists(filepath):
+                with open(filepath, "r") as f:
+                    cached = json.load(f)
+                data = cached.get("data")
+                if isinstance(data, list):
+                    logger.info("_unwrap_list: read %d items from cached file", len(data))
+                    return data
+        except Exception:
+            logger.warning("_unwrap_list: failed to read cached file %s", filepath, exc_info=True)
+        # Fall back to preview
+        preview = parsed.get("_preview")
+        if isinstance(preview, list):
+            return preview
+
+    # Other dict wrappers
+    for key in ("data", "results", "_preview", "_sample"):
+        val = parsed.get(key)
+        if isinstance(val, list):
+            return val
+
     return None

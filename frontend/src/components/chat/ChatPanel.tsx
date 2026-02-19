@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useChatStore } from '../../store/chatSlice'
 import type { ChatMode } from '../../store/chatSlice'
+import { useCanvasStore } from '../../store/canvasSlice'
 import { useChat } from '../../hooks/useChat'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
@@ -53,9 +54,10 @@ export function ChatPanel({ onHeaderMouseDown }: ChatPanelProps = {}) {
   const pendingPrompt = useChatStore((s) => s.pendingPrompt)
   const setPendingPrompt = useChatStore((s) => s.setPendingPrompt)
   const clearMessages = useChatStore((s) => s.clearMessages)
+  const clearCanvas = useCanvasStore((s) => s.clearCanvas)
   const chatMode = useChatStore((s) => s.chatMode)
   const setChatMode = useChatStore((s) => s.setChatMode)
-  const { sendMessage, stopProcessing } = useChat()
+  const { sendMessage, stopProcessing, stopCurrentAndContinue } = useChat()
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [showModePicker, setShowModePicker] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -169,7 +171,7 @@ export function ChatPanel({ onHeaderMouseDown }: ChatPanelProps = {}) {
       <ConfirmationModal />
 
       {/* Prompt Queue */}
-      <PromptQueue onStopProcessing={stopProcessing} />
+      <PromptQueue onStopProcessing={stopCurrentAndContinue} />
 
       {/* Input */}
       <ChatInput onSend={sendMessage} onStop={stopProcessing} />
@@ -195,9 +197,9 @@ export function ChatPanel({ onHeaderMouseDown }: ChatPanelProps = {}) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                 </svg>
               </div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-200 mb-1">Clear chat history?</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-200 mb-1">Start new chat?</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                This will remove all messages from the chat. Cards on the canvas will not be affected.
+                This will clear all chat messages and cards on the canvas.
               </p>
             </div>
 
@@ -213,6 +215,7 @@ export function ChatPanel({ onHeaderMouseDown }: ChatPanelProps = {}) {
               <button
                 onClick={() => {
                   clearMessages()
+                  clearCanvas()
                   setShowClearConfirm(false)
                 }}
                 className="flex-1 px-4 py-2.5 text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"

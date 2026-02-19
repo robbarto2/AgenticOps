@@ -216,6 +216,24 @@ export function useChat() {
     useQueueStore.getState().cancelAllPending()
   }, [wsStop, setProcessing, setActiveAgent, clearToolCalls, setPromptStatus])
 
+  // Stop only the current prompt and let the queue continue with the next pending item
+  const stopCurrentAndContinue = useCallback(() => {
+    wsStop()
+    setActiveAgent(null)
+    clearToolCalls()
+    if (responseTimeoutRef.current) {
+      clearTimeout(responseTimeoutRef.current)
+      responseTimeoutRef.current = undefined
+    }
+    // Mark only the current prompt as cancelled; leave pending items intact
+    if (processingPromptIdRef.current) {
+      setPromptStatus(processingPromptIdRef.current, 'cancelled')
+      processingPromptIdRef.current = null
+    }
+    // Allow the useEffect to pick up the next pending prompt
+    setProcessing(false)
+  }, [wsStop, setProcessing, setActiveAgent, clearToolCalls, setPromptStatus])
+
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
@@ -227,5 +245,5 @@ export function useChat() {
 
   // Connection status is shown in the top bar indicator, no need for chat messages
 
-  return { sendMessage, sendConfirmation, stopProcessing }
+  return { sendMessage, sendConfirmation, stopProcessing, stopCurrentAndContinue }
 }

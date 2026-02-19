@@ -56,6 +56,8 @@ User ──WebSocket──> FastAPI ──────> │  Orchestrator Agent 
    - `card` - card directive for the canvas
    - `done` - query complete
 7. Frontend renders text in the chat panel and cards on the canvas
+   - Markdown tables in chat are clickable — clicking a row opens a `MarkdownRowPopup` showing the row data with Investigate/Troubleshoot actions
+   - Interactive tables (structured `TableData`) use entity-specific popups (DevicePopup, ClientPopup, UplinkPopup, TestPopup)
 
 ## MCP Client Integration
 

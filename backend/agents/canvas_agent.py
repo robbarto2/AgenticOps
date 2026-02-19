@@ -42,6 +42,8 @@ async def canvas_node(state: AgentState) -> dict:
         model=settings.canvas_model_name,
         api_key=settings.anthropic_api_key,
         max_tokens=4096,
+        timeout=60,       # Canvas agent is Haiku, should be fast
+        max_retries=1,
     )
 
     user_content = f"""User query: {query}

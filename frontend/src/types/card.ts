@@ -86,6 +86,13 @@ export interface HealthMetric {
   icon?: 'wifi' | 'server' | 'shield' | 'globe'
 }
 
+export interface NetworkProblemDevice {
+  name: string
+  model: string
+  serial: string
+  status: string
+}
+
 export interface NetworkDetailCard extends CardBase {
   type: 'network_detail'
   data: {
@@ -94,7 +101,16 @@ export interface NetworkDetailCard extends CardBase {
     tags?: string[]
     productTypes?: string[]
     notes?: string
-    stats: { deviceCount: number; clientCount: number; ssidCount: number }
+    location?: string
+    stats: {
+      deviceCount: number
+      clientCount: number
+      ssidCount: number
+      onlineCount?: number
+      offlineCount?: number
+      alertingCount?: number
+    }
+    problemDevices?: NetworkProblemDevice[]
   }
 }
 

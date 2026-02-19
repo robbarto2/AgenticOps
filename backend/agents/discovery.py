@@ -5,23 +5,28 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.types import StreamWriter
 
 from agents.state import AgentState
-from agents.stream_util import safe_writer
-from agents.table_extractor import extract_network_table, extract_device_table, extract_test_table, extract_client_table
+from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, needs_forced_summary, safe_writer
+from agents.table_extractor import (
+    extract_network_table, extract_device_table, extract_test_table, extract_client_table,
+    extract_uplink_table, _extract_network_device_counts,
+)
 from agents.tools import build_langchain_tools
 from config import settings
+from mcp_client.manager import mcp_manager
 from prompts import load_prompt
 from skills.loader import load_skills_for_agent
 
 logger = logging.getLogger(__name__)
 
-# Timeout for individual tool calls (60 seconds)
-TOOL_CALL_TIMEOUT_SEC = 60
+# Timeout for individual tool calls (30 seconds)
+TOOL_CALL_TIMEOUT_SEC = 30
 
 SYSTEM_PROMPT_TEMPLATE = load_prompt("discovery")
 
@@ -36,6 +41,8 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
         model=settings.discovery_model_name,  # Use fast Haiku model for discovery
         api_key=settings.anthropic_api_key,
         max_tokens=4096,
+        timeout=120,
+        max_retries=1,
     )
 
     tools = build_langchain_tools("discovery")
@@ -54,10 +61,21 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
 
     agent_events = list(state.get("agent_events", []))
     tool_results: list[dict] = []
+    response = None
 
     max_iterations = 6  # Allow enough iterations for tool calls + analysis
+    loop_start = time.time()
     for iteration in range(max_iterations):
-        response = await llm_with_tools.ainvoke(messages)
+        if time.time() - loop_start > AGENT_LOOP_TIMEOUT_SEC:
+            logger.warning("Discovery agent hit %ds loop timeout", AGENT_LOOP_TIMEOUT_SEC)
+            break
+        try:
+            response = await asyncio.wait_for(
+                llm_with_tools.ainvoke(messages), timeout=60
+            )
+        except asyncio.TimeoutError:
+            logger.error("Discovery agent: LLM call timed out after 60s")
+            break
         messages.append(response)
 
         if not response.tool_calls:
@@ -112,28 +130,151 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
     # Extract interactive tables when the user is asking for network, device, client, or test listings
     table_data: list[dict] = []
     if _is_network_listing_query(query):
+        # Ensure device statuses were fetched — the LLM sometimes skips
+        # this call even when prompted, so we fetch programmatically.
+        _status_tool_names = {"getorganizationdevicesstatuses"}
+        has_status_data = any(
+            r.get("tool", "").lower().rstrip() in _status_tool_names
+            or (r.get("tool") == "call_meraki_api" and r.get("args", {}).get("method", "").lower() in _status_tool_names)
+            for r in tool_results
+        )
+        if not has_status_data and mcp_manager.meraki_connected:
+            emit({"type": "tool_call", "tool": "getOrganizationDevicesStatuses", "source": "meraki", "status": "running"})
+
+            # getOrganizationDevicesStatuses is NOT a pre-registered MCP tool.
+            # It must be called through the generic call_meraki_api tool.
+            try:
+                mcp_result = await asyncio.wait_for(
+                    mcp_manager.call_tool("call_meraki_api", {
+                        "section": "organizations",
+                        "method": "getOrganizationDevicesStatuses",
+                        "parameters": {},
+                    }),
+                    timeout=20,
+                )
+                if "error" not in mcp_result:
+                    content = mcp_result.get("content", "")
+                    logger.info("Discovery node: device status fetch OK (%d chars)", len(content))
+                    # Store with method in args so table_extractor can identify it
+                    tool_results.append({
+                        "tool": "call_meraki_api",
+                        "args": {"method": "getOrganizationDevicesStatuses"},
+                        "result": content,
+                    })
+                else:
+                    logger.warning("Discovery node: device status error: %s", mcp_result.get("error"))
+            except asyncio.TimeoutError:
+                logger.warning("Discovery node: device status timed out")
+            except Exception as e:
+                logger.warning("Discovery node: device status failed: %s", e)
+
+            emit({"type": "tool_call", "tool": "getOrganizationDevicesStatuses", "source": "meraki", "status": "complete"})
+
         table_data = extract_network_table(tool_results)
         logger.info("Discovery node: extracted %d network table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
+
+        # Replace the LLM response with a minimal summary + health line.
+        # The interactive table is auto-generated, so verbose LLM prose is redundant.
+        if table_data and response:
+            n_networks = sum(len(t.get("rows", [])) for t in table_data)
+            summary = f"Your organization has **{n_networks} network{'s' if n_networks != 1 else ''}**."
+
+            device_counts = _extract_network_device_counts(tool_results)
+            if device_counts:
+                total = sum(c["total"] for c in device_counts.values())
+                online = sum(c["online"] for c in device_counts.values())
+                offline = sum(c["offline"] for c in device_counts.values())
+                alerting = sum(c["alerting"] for c in device_counts.values())
+
+                if total > 0:
+                    if offline == 0 and alerting == 0:
+                        summary += f" All {total} devices online."
+                    elif offline > 0 and alerting > 0:
+                        summary += f" {offline} offline, {alerting} alerting ({online}/{total} online)."
+                    elif offline > 0:
+                        summary += f" {offline} device{'s' if offline != 1 else ''} offline ({online}/{total} online)."
+                    else:
+                        summary += f" {alerting} device{'s' if alerting != 1 else ''} alerting ({online}/{total} online)."
+
+            response = AIMessage(content=summary, id=response.id)
     elif _is_client_listing_query(query):
         table_data = extract_client_table(tool_results)
         logger.info("Discovery node: extracted %d client table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
+        if table_data and response:
+            n_clients = sum(len(t.get("rows", [])) for t in table_data)
+            response = AIMessage(content=f"Found **{n_clients} clients**.", id=response.id)
     elif _is_device_listing_query(query):
+        # Ensure device statuses were fetched — the LLM often skips this call
+        _status_tool_names = {"getorganizationdevicesstatuses"}
+        has_status_data = any(
+            r.get("tool", "").lower().rstrip() in _status_tool_names
+            or (r.get("tool") == "call_meraki_api" and r.get("args", {}).get("method", "").lower() in _status_tool_names)
+            for r in tool_results
+        )
+        if not has_status_data and mcp_manager.meraki_connected:
+            emit({"type": "tool_call", "tool": "getOrganizationDevicesStatuses", "source": "meraki", "status": "running"})
+            try:
+                mcp_result = await asyncio.wait_for(
+                    mcp_manager.call_tool("call_meraki_api", {
+                        "section": "organizations",
+                        "method": "getOrganizationDevicesStatuses",
+                        "parameters": {},
+                    }),
+                    timeout=20,
+                )
+                if "error" not in mcp_result:
+                    content = mcp_result.get("content", "")
+                    logger.info("Discovery node: device status fetch OK for device listing (%d chars)", len(content))
+                    tool_results.append({
+                        "tool": "call_meraki_api",
+                        "args": {"method": "getOrganizationDevicesStatuses"},
+                        "result": content,
+                    })
+                else:
+                    logger.warning("Discovery node: device status error: %s", mcp_result.get("error"))
+            except asyncio.TimeoutError:
+                logger.warning("Discovery node: device status timed out")
+            except Exception as e:
+                logger.warning("Discovery node: device status failed: %s", e)
+            emit({"type": "tool_call", "tool": "getOrganizationDevicesStatuses", "source": "meraki", "status": "complete"})
+
         table_data = extract_device_table(tool_results, user_query=query)
         logger.info("Discovery node: extracted %d device table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
+        if table_data and response:
+            n_devices = sum(len(t.get("rows", [])) for t in table_data)
+            response = AIMessage(content=f"Found **{n_devices} devices**.", id=response.id)
     elif _is_test_listing_query(query):
         table_data = extract_test_table(tool_results)
         logger.info("Discovery node: extracted %d test table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
+        if table_data and response:
+            n_tests = sum(len(t.get("rows", [])) for t in table_data)
+            response = AIMessage(content=f"Found **{n_tests} tests**.", id=response.id)
+    elif _is_uplink_query(query):
+        table_data = extract_uplink_table(tool_results)
+        logger.info("Discovery node: extracted %d uplink table_data entries from %d tool_results",
+                     len(table_data), len(tool_results))
+        if table_data and response:
+            # Keep the LLM's text analysis but strip any markdown tables
+            response = _strip_markdown_tables(response)
     else:
         logger.info("Discovery node: skipping table extraction (not a network/device/client/test listing query)")
 
-    # If we have interactive tables, strip duplicate markdown tables from the
-    # LLM response so the user doesn't see the same data twice.
-    if table_data:
-        response = _strip_markdown_tables(response)
+    # If the response is incomplete (exhausted iterations, truncated, or empty),
+    # do one more LLM call WITHOUT tools to force a proper summary.
+    # Skip for listing queries with table data — those have a programmatic
+    # summary and the interactive table handles the rest.
+    if not table_data and needs_forced_summary(response, max_iterations, "Discovery", logger, len(tool_results)):
+        messages.append(HumanMessage(content=FORCE_SUMMARY_PROMPT))
+        try:
+            response = await asyncio.wait_for(llm.ainvoke(messages), timeout=60)
+        except Exception:
+            logger.error("Discovery forced summary also failed")
+            response = AIMessage(content="I was unable to complete the analysis in time. Please try again with a more specific query.")
+        messages.append(response)
 
     # Advance plan step for multi-agent routing
     plan_step = state.get("plan_step", 0)
@@ -177,6 +318,11 @@ _TEST_LISTING_RE = re.compile(
     re.IGNORECASE,
 )
 
+_UPLINK_QUERY_RE = re.compile(
+    r"\b(uplinks?|wan\s+status|wan\s+uplinks?|uplinks?\s+status)\b",
+    re.IGNORECASE,
+)
+
 
 def _is_network_listing_query(query: str) -> bool:
     """Return True if the user is asking for a list of networks (not devices in a network)."""
@@ -212,6 +358,11 @@ def _is_test_listing_query(query: str) -> bool:
         return False
     # Must mention listing + test/tests/monitoring
     return bool(_TEST_LISTING_RE.search(query))
+
+
+def _is_uplink_query(query: str) -> bool:
+    """Return True if the user is asking about WAN/uplink status."""
+    return bool(_UPLINK_QUERY_RE.search(query))
 
 
 # Regex matching a full markdown table (header row, separator row, data rows)

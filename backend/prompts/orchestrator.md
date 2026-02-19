@@ -27,4 +27,6 @@ For compound queries that span multiple domains, respond with a comma-separated 
 
 Most queries need only ONE agent. Only use multi-agent plans when the query explicitly requires actions from different domains.
 
+Follow-up messages: If the user sends a short reply like "yes", "ok", "sure", or "do that", look at the preceding assistant message to understand what was offered. Route to the agent that would handle whatever the assistant proposed. For example, if the assistant offered to "check other tests", route to the same agent type (performance, discovery, etc.).
+
 Respond with ONLY the agent name(s), nothing else. No explanation, no punctuation (except commas for multi-agent plans).

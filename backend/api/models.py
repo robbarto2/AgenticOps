@@ -32,12 +32,26 @@ class SkillsResponse(BaseModel):
     count: int
 
 
+class ProblemDevice(BaseModel):
+    """A device that is offline or alerting."""
+
+    name: str
+    model: str
+    serial: str
+    status: str
+
+
 class EntityStatsResponse(BaseModel):
     """Live stats for a network entity."""
 
     deviceCount: int
     clientCount: int
     ssidCount: int
+    onlineCount: int = -1
+    offlineCount: int = -1
+    alertingCount: int = -1
+    location: str | None = None
+    problemDevices: list[ProblemDevice] = []
 
 
 class DeviceDetail(BaseModel):

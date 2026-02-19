@@ -89,6 +89,70 @@ def _is_network_result(result: dict) -> bool:
     return False
 
 
+def _extract_network_device_counts(tool_results: list[dict]) -> dict[str, dict]:
+    """Build a networkId → {total, online, offline, alerting} map from getOrganizationDevicesStatuses."""
+    counts: dict[str, dict] = {}
+
+    for result in tool_results:
+        tool_name = result.get("tool", "")
+
+        is_status_tool = tool_name.lower().rstrip() in _DEVICE_STATUS_TOOL_NAMES
+        if not is_status_tool and tool_name == "call_meraki_api":
+            args = result.get("args", {})
+            method = args.get("method", "")
+            is_status_tool = method.lower() in _DEVICE_STATUS_TOOL_NAMES
+
+        if not is_status_tool:
+            continue
+
+        raw = result.get("result", "")
+        parsed = _parse_result(raw)
+        if parsed is None:
+            continue
+
+        # Handle wrapped responses
+        if isinstance(parsed, dict):
+            if parsed.get("_response_truncated") and parsed.get("_full_response_cached"):
+                full_data = _read_cached_file(parsed["_full_response_cached"])
+                if full_data is not None:
+                    parsed = full_data
+                else:
+                    parsed = parsed.get("_preview") or []
+            else:
+                sample = parsed.get("data") or parsed.get("results") or parsed.get("_preview") or parsed.get("_sample")
+                if isinstance(sample, list):
+                    parsed = sample
+                else:
+                    continue
+
+        if not isinstance(parsed, list):
+            continue
+
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            net_id = item.get("networkId", "")
+            status = (item.get("status") or "").lower()
+            if not net_id:
+                continue
+
+            if net_id not in counts:
+                counts[net_id] = {"total": 0, "online": 0, "offline": 0, "alerting": 0}
+
+            counts[net_id]["total"] += 1
+            if status == "online":
+                counts[net_id]["online"] += 1
+            elif status == "offline" or status == "dormant":
+                counts[net_id]["offline"] += 1
+            elif status == "alerting":
+                counts[net_id]["alerting"] += 1
+
+    if counts:
+        logger.info("_extract_network_device_counts: built counts for %d networks", len(counts))
+
+    return counts
+
+
 def extract_network_table(tool_results: list[dict]) -> list[dict]:
     """Find getOrganizationNetworks results and build structured table data.
 
@@ -97,6 +161,9 @@ def extract_network_table(tool_results: list[dict]) -> list[dict]:
     tables = []
     seen_network_sets = set()  # Track unique sets of network IDs to prevent duplicates
     logger.info("extract_network_table: scanning %d tool results", len(tool_results))
+
+    # Build per-network device counts from status data
+    device_counts = _extract_network_device_counts(tool_results)
 
     for result in tool_results:
         tool_name = result.get("tool", "")
@@ -163,20 +230,42 @@ def extract_network_table(tool_results: list[dict]) -> list[dict]:
             if isinstance(tags, str):
                 tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
+            # Look up device counts for this network
+            net_counts = device_counts.get(network_id, {})
+            device_total = net_counts.get("total")
+            device_offline = net_counts.get("offline")
+            device_alerting = net_counts.get("alerting")
+            device_online = net_counts.get("online")
+
+            # Determine row highlight based on device health
+            if device_offline and device_offline > 0:
+                status_type = "error"
+            elif device_alerting and device_alerting > 0:
+                status_type = "warning"
+            else:
+                status_type = "normal"
+
             rows.append({
                 "id": network_id,
                 "cells": [
                     name,
                     ", ".join(product_types) if isinstance(product_types, list) else str(product_types),
-                    time_zone,
+                    str(device_online) if device_online is not None else "—",
+                    str(device_offline) if device_offline is not None else "—",
+                    str(device_alerting) if device_alerting is not None else "—",
                     ", ".join(tags) if tags else "",
                 ],
+                "status_type": status_type,
                 "metadata": {
                     "networkId": network_id,
                     "notes": notes or None,
                     "tags": tags if tags else None,
                     "timeZone": time_zone or None,
                     "productTypes": product_types if product_types else None,
+                    "deviceTotal": device_total,
+                    "onlineCount": device_online,
+                    "offlineCount": device_offline,
+                    "alertingCount": device_alerting,
                 },
             })
 
@@ -192,7 +281,7 @@ def extract_network_table(tool_results: list[dict]) -> list[dict]:
                 "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
                 "entity_type": "network",
                 "source": "meraki",
-                "columns": ["Name", "Product Types", "Time Zone", "Tags"],
+                "columns": ["Name", "Product Types", "Active", "Offline", "Alerting", "Tags"],
                 "rows": rows,
             }
             tables.append(table)
@@ -538,6 +627,250 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
     return tables
 
 
+# Tool names and method names that return appliance uplink statuses
+_UPLINK_TOOL_NAMES = {"getOrganizationApplianceUplinkStatuses", "getorganizationapplianceuplinkstatuses"}
+_UPLINK_METHOD_NAMES = {"getOrganizationApplianceUplinkStatuses", "getorganizationapplianceuplinkstatuses"}
+
+
+def _is_uplink_result(result: dict) -> bool:
+    """Check if a tool result contains appliance uplink status data."""
+    tool_name = result.get("tool", "")
+
+    # Direct match
+    if tool_name.lower().rstrip() in _UPLINK_TOOL_NAMES:
+        return True
+
+    # Generic call_meraki_api tool with uplink method
+    if tool_name == "call_meraki_api":
+        args = result.get("args", {})
+        method = args.get("method", "")
+        if method.lower() in _UPLINK_METHOD_NAMES:
+            return True
+
+    return False
+
+
+def _extract_device_name_map(tool_results: list[dict]) -> dict[str, str]:
+    """Build a serial → device name map from any device listing results in tool_results."""
+    name_map: dict[str, str] = {}
+
+    for result in tool_results:
+        if not _is_device_result(result):
+            continue
+
+        raw = result.get("result", "")
+        parsed = _parse_result(raw)
+        if parsed is None:
+            continue
+
+        # Handle wrapped responses
+        if isinstance(parsed, dict):
+            if parsed.get("_response_truncated") and parsed.get("_full_response_cached"):
+                full_data = _read_cached_file(parsed["_full_response_cached"])
+                if full_data is not None:
+                    parsed = full_data
+                else:
+                    parsed = parsed.get("_preview") or []
+            else:
+                sample = parsed.get("data") or parsed.get("results") or parsed.get("_preview") or parsed.get("_sample")
+                if isinstance(sample, list):
+                    parsed = sample
+                else:
+                    continue
+
+        if not isinstance(parsed, list):
+            continue
+
+        for item in parsed:
+            if isinstance(item, dict):
+                serial = item.get("serial", "")
+                name = item.get("name", "")
+                if serial and name:
+                    name_map[serial] = name
+
+    if name_map:
+        logger.info("_extract_device_name_map: built map with %d device names", len(name_map))
+
+    return name_map
+
+
+def _extract_network_name_map(tool_results: list[dict]) -> dict[str, str]:
+    """Build a networkId → network name map from any network listing results in tool_results."""
+    name_map: dict[str, str] = {}
+
+    for result in tool_results:
+        if not _is_network_result(result):
+            continue
+
+        raw = result.get("result", "")
+        parsed = _parse_result(raw)
+        if parsed is None:
+            continue
+
+        # Handle wrapped responses
+        if isinstance(parsed, dict):
+            if parsed.get("_response_truncated") and parsed.get("_full_response_cached"):
+                full_data = _read_cached_file(parsed["_full_response_cached"])
+                if full_data is not None:
+                    parsed = full_data
+                else:
+                    parsed = parsed.get("_preview") or []
+            else:
+                sample = parsed.get("data") or parsed.get("results") or parsed.get("_preview")
+                if isinstance(sample, list):
+                    parsed = sample
+                else:
+                    continue
+
+        if not isinstance(parsed, list):
+            continue
+
+        for item in parsed:
+            if isinstance(item, dict):
+                net_id = item.get("id", "")
+                name = item.get("name", "")
+                if net_id and name:
+                    name_map[net_id] = name
+
+    if name_map:
+        logger.info("_extract_network_name_map: built map with %d network names", len(name_map))
+
+    return name_map
+
+
+def extract_uplink_table(tool_results: list[dict]) -> list[dict]:
+    """Find getOrganizationApplianceUplinkStatuses results and build structured table data.
+
+    Each appliance may have multiple uplinks; we flatten to one row per uplink interface.
+    Returns a list of table_data dicts suitable for sending as WebSocket events.
+    """
+    tables = []
+    seen_sets: set[frozenset] = set()
+    logger.info("extract_uplink_table: scanning %d tool results", len(tool_results))
+
+    # Build helper maps for human-readable names
+    device_name_map = _extract_device_name_map(tool_results)
+    network_name_map = _extract_network_name_map(tool_results)
+
+    for result in tool_results:
+        if not _is_uplink_result(result):
+            continue
+
+        logger.info("extract_uplink_table: found uplink result from tool '%s'", result.get("tool", ""))
+
+        raw = result.get("result", "")
+        parsed = _parse_result(raw)
+        if parsed is None:
+            continue
+
+        # Handle wrapped responses
+        if isinstance(parsed, dict):
+            if parsed.get("_response_truncated") and parsed.get("_full_response_cached"):
+                full_data = _read_cached_file(parsed["_full_response_cached"])
+                if full_data is not None:
+                    parsed = full_data
+                else:
+                    parsed = parsed.get("_preview") or []
+            else:
+                sample = parsed.get("data") or parsed.get("results") or parsed.get("_preview") or parsed.get("_sample")
+                if isinstance(sample, list):
+                    parsed = sample
+                else:
+                    continue
+
+        if not isinstance(parsed, list):
+            continue
+
+        logger.info("extract_uplink_table: building rows from %d appliance records", len(parsed))
+
+        rows = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+
+            serial = item.get("serial", "")
+            network_id = item.get("networkId", "")
+            model = item.get("model", "")
+            device_name = device_name_map.get(serial, serial)
+            network_name = network_name_map.get(network_id, network_id)
+
+            uplinks = item.get("uplinks", [])
+            if not isinstance(uplinks, list):
+                continue
+
+            for uplink in uplinks:
+                if not isinstance(uplink, dict):
+                    continue
+
+                interface = uplink.get("interface", "")
+                status = uplink.get("status", "")
+                ip = uplink.get("ip") or ""
+                gateway = uplink.get("gateway") or ""
+                public_ip = uplink.get("publicIp") or ""
+                provider = uplink.get("provider") or uplink.get("isp") or ""
+
+                # Determine row status type
+                status_lower = status.lower() if status else ""
+                if status_lower == "failed":
+                    status_type = "error"
+                elif status_lower in ("not connected", "connecting"):
+                    status_type = "warning"
+                else:
+                    status_type = "normal"
+
+                row_id = f"{serial}-{interface}"
+                rows.append({
+                    "id": row_id,
+                    "cells": [
+                        device_name,
+                        network_name,
+                        interface,
+                        status or "—",
+                        ip or "—",
+                        public_ip or "—",
+                        provider or "—",
+                    ],
+                    "status_type": status_type,
+                    "metadata": {
+                        "serial": serial,
+                        "deviceName": device_name,
+                        "networkId": network_id,
+                        "networkName": network_name,
+                        "model": model,
+                        "interface": interface,
+                        "status": status,
+                        "ip": ip,
+                        "gateway": gateway,
+                        "publicIp": public_ip,
+                        "provider": provider,
+                    },
+                })
+
+        if rows:
+            row_ids = frozenset(row["id"] for row in rows)
+            if row_ids in seen_sets:
+                logger.info("extract_uplink_table: skipping duplicate table with %d rows", len(rows))
+                continue
+            seen_sets.add(row_ids)
+
+            table = {
+                "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
+                "entity_type": "uplink",
+                "source": "meraki",
+                "columns": ["Device", "Network", "Interface", "Status", "IP", "Public IP", "Provider"],
+                "rows": rows,
+            }
+            tables.append(table)
+            logger.info("extract_uplink_table: built table with %d rows (id=%s)", len(rows), table["table_id"])
+        else:
+            logger.warning("extract_uplink_table: no valid rows extracted")
+
+    if not tables:
+        logger.info("extract_uplink_table: no uplink tables extracted from tool results")
+
+    return tables
+
+
 # Tool names for ThousandEyes tests
 _TEST_TOOL_NAMES = {
     "list_network_app_synthetics_tests",
@@ -827,9 +1160,16 @@ def _parse_result(raw: object) -> object | None:
     if isinstance(raw, dict):
         return raw
     if isinstance(raw, str):
+        text = raw
+        # Strip the item-count prefix injected by _inject_item_count in tools.py
+        # e.g. "[Total items returned: 32]\n{...}" or "[Total items in 'tests': 5]\n{...}"
+        if text.startswith("[Total items"):
+            newline_idx = text.find("\n")
+            if newline_idx >= 0:
+                text = text[newline_idx + 1:]
         try:
-            return json.loads(raw)
+            return json.loads(text)
         except (json.JSONDecodeError, ValueError):
-            logger.debug("_parse_result: json.loads failed on string of length %d", len(raw))
+            logger.debug("_parse_result: json.loads failed on string of length %d", len(text))
             return None
     return None

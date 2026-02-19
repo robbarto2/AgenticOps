@@ -63,6 +63,8 @@ _FAST_ROUTES: list[tuple[re.Pattern, str]] = [
     # Remediation agent — write/change operations
     (re.compile(r"\b(fix|change|update|set|modify|disable|enable|configure|remediate|close|block|add\s+(a\s+)?rule)\b.*\b(port|ssid|vlan|firewall|rule|network|config)\b", re.IGNORECASE), "remediation"),
     (re.compile(r"\b(port|ssid|vlan|firewall|rule)\b.*\b(fix|change|update|set|modify|disable|enable|configure|remediate|close|block)\b", re.IGNORECASE), "remediation"),
+    # Discovery agent — uplink/WAN status queries (before generic discovery to avoid "status" matching troubleshooting)
+    (re.compile(r"\b(uplinks?|wan\s+status|wan\s+uplinks?)\b", re.IGNORECASE), "discovery"),
     # Discovery agent — listing/inventory queries
     (re.compile(r"\b(list|show|get|what|display).*(network|site|device|ap|access\s+point|switch|appliance|camera|sensor|client|ssid)s?\b", re.IGNORECASE), "discovery"),
     (re.compile(r"\b(inventory|health|overview|status|organization)\b", re.IGNORECASE), "discovery"),
@@ -91,10 +93,11 @@ def _is_card_followup(query: str, has_previous_results: bool = False) -> bool:
     """Check if this is a follow-up request to show previous results as cards."""
     if _CARD_FOLLOWUP_PATTERNS.search(query):
         return True
-    # Short affirmatives like "yes please" are card follow-ups only when there
-    # are previous tool results (meaning the assistant just offered cards).
-    if has_previous_results and _AFFIRMATIVE_RE.match(query):
-        return True
+    # NOTE: We intentionally do NOT match short affirmatives ("yes", "ok")
+    # as card follow-ups.  The user may be answering a follow-up question
+    # offered by the agent (e.g. "Would you like me to investigate further?").
+    # Explicit requests like "show that as a card" are handled by
+    # _CARD_FOLLOWUP_PATTERNS above.
     return False
 
 
@@ -129,12 +132,19 @@ async def orchestrator_node(state: AgentState) -> dict:
             model=settings.orchestrator_model_name,
             api_key=settings.anthropic_api_key,
             max_tokens=100,
+            timeout=30,       # Orchestrator should be fast (Haiku, small output)
+            max_retries=1,
         )
 
-        messages = [
-            SystemMessage(content=ORCHESTRATOR_SYSTEM_PROMPT),
-            HumanMessage(content=query),
-        ]
+        # Include recent conversation context so the LLM can interpret
+        # follow-up messages like "yes", "do that", etc.
+        messages = [SystemMessage(content=ORCHESTRATOR_SYSTEM_PROMPT)]
+        for msg in state.get("messages", []):
+            # Skip the current query — we add it below
+            if hasattr(msg, "type") and msg.type == "human" and msg.content == query:
+                continue
+            messages.append(msg)
+        messages.append(HumanMessage(content=query))
 
         response = await llm.ainvoke(messages)
         raw = response.content.strip().lower()

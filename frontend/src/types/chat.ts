@@ -20,6 +20,10 @@ export interface TableRowMetadata {
   tags?: string[]
   timeZone?: string
   productTypes?: string[]
+  deviceTotal?: number
+  onlineCount?: number
+  offlineCount?: number
+  alertingCount?: number
 }
 
 export interface TableRow {

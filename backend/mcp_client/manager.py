@@ -25,8 +25,14 @@ MIN_CALL_INTERVAL = 0.5  # 500ms between calls = max 2 calls/sec
 CACHE_TTL = 3600  # 1 hour (aggressive caching to minimize API traffic and avoid rate limits)
 
 # Retry settings for rate limit errors
-MAX_RETRIES = 5
-RETRY_DELAY = 2.0  # Initial retry delay in seconds
+MAX_RETRIES = 3
+RETRY_DELAY = 1.0  # Initial retry delay in seconds
+
+# Per-attempt timeout for a single MCP tool call (seconds).
+# Keeps any one API call from blocking indefinitely when the Meraki
+# API is slow or unresponsive. Agents have their own outer timeout
+# on top of this.
+MCP_CALL_TIMEOUT_SEC = 20
 
 # Strings that indicate a rate-limit error in MCP response content
 _RATE_LIMIT_MARKERS = ("429", "rate limit", "too many requests", "rate-limit")
@@ -42,8 +48,9 @@ class MCPClientManager:
         self._tools: list[ToolDescriptor] = []
         self._tool_map: dict[str, ToolDescriptor] = {}
 
-        # Rate limiting
+        # Rate limiting (lock prevents concurrent calls from bypassing the throttle)
         self._last_call_time: float = 0
+        self._throttle_lock: asyncio.Lock = asyncio.Lock()
 
         # Cache: {cache_key: (result, timestamp)}
         self._cache: dict[str, tuple[dict, float]] = {}
@@ -179,14 +186,20 @@ class MCPClientManager:
         logger.debug("Cache STORE for key %s (%d total cached)", cache_key[:8], len(self._cache))
 
     async def _throttle(self) -> None:
-        """Apply rate limiting by waiting if needed."""
-        now = time.time()
-        time_since_last = now - self._last_call_time
-        if time_since_last < MIN_CALL_INTERVAL:
-            wait_time = MIN_CALL_INTERVAL - time_since_last
-            logger.debug("Throttling: waiting %.3fs before next API call", wait_time)
-            await asyncio.sleep(wait_time)
-        self._last_call_time = time.time()
+        """Apply rate limiting by waiting if needed.
+
+        Uses an asyncio.Lock so that concurrent callers (e.g. from
+        asyncio.gather) properly queue up instead of all reading the
+        same _last_call_time and firing simultaneously.
+        """
+        async with self._throttle_lock:
+            now = time.time()
+            time_since_last = now - self._last_call_time
+            if time_since_last < MIN_CALL_INTERVAL:
+                wait_time = MIN_CALL_INTERVAL - time_since_last
+                logger.debug("Throttling: waiting %.3fs before next API call", wait_time)
+                await asyncio.sleep(wait_time)
+            self._last_call_time = time.time()
 
     @staticmethod
     def _is_rate_limit(text: str) -> bool:
@@ -223,7 +236,10 @@ class MCPClientManager:
             await self._throttle()
 
             try:
-                result = await session.call_tool(tool_name, arguments or {})
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, arguments or {}),
+                    timeout=MCP_CALL_TIMEOUT_SEC,
+                )
                 # Extract text content from MCP result
                 contents = []
                 for block in result.content:
@@ -248,13 +264,28 @@ class MCPClientManager:
                     "content": content_text,
                 }
 
-                # Only cache successful results (not error responses)
-                if not result.isError:
-                    self._cache_result(cache_key, response)
-                else:
+                # Only cache successful results (not error or rate-limit responses)
+                if result.isError:
                     logger.debug("Skipping cache for error response from tool %s", tool_name)
+                elif self._is_rate_limit(content_text):
+                    logger.warning("Skipping cache for rate-limited response from tool %s", tool_name)
+                else:
+                    self._cache_result(cache_key, response)
 
                 return response
+
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Tool call %s timed out after %ds (attempt %d/%d)",
+                    tool_name, MCP_CALL_TIMEOUT_SEC, attempt + 1, MAX_RETRIES,
+                )
+                # Don't retry on timeout — the API is slow, not rate-limited
+                source_name = "Meraki" if descriptor.source == "meraki" else "ThousandEyes"
+                return {
+                    "error": f"{source_name} API did not respond within {MCP_CALL_TIMEOUT_SEC}s. "
+                             "It may be slow or rate-limited. Please try again.",
+                    "tool": tool_name,
+                }
 
             except Exception as e:
                 error_str = str(e).lower()
