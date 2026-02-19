@@ -78,7 +78,7 @@ export function NetworkDetailCard({ data }: Props) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
             </svg>
-            <p className="text-sm text-gray-300 leading-tight">{liveLocation}</p>
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-tight">{liveLocation}</p>
           </div>
         )}
 
@@ -88,7 +88,7 @@ export function NetworkDetailCard({ data }: Props) {
               <circle cx="12" cy="12" r="10" />
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
             </svg>
-            <p className="text-sm text-gray-400">{data.timeZone}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{data.timeZone}</p>
           </div>
         )}
 
@@ -97,7 +97,7 @@ export function NetworkDetailCard({ data }: Props) {
 
       {/* Notes */}
       {data.notes && (
-        <p className="text-sm text-gray-400 italic">{data.notes}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 italic">{data.notes}</p>
       )}
 
       {/* Badges: product types + tags */}
@@ -123,22 +123,22 @@ export function NetworkDetailCard({ data }: Props) {
       )}
 
       {/* Divider */}
-      <div className="border-t border-gray-800" />
+      <div className="border-t border-gray-200 dark:border-gray-800" />
 
       {/* Active / Inactive devices row */}
       <div className="grid grid-cols-2 gap-2.5">
         <button
           onClick={(e) => handleStatClick('devices', e.currentTarget, 'active')}
-          className="text-center p-2.5 bg-gray-800/40 rounded-lg cursor-pointer hover:bg-gray-700/50 transition-colors"
+          className="text-center p-2.5 bg-gray-100 dark:bg-gray-800/40 rounded-lg cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
         >
-          <p className="text-xl font-semibold text-emerald-400">{onlineCount}</p>
+          <p className="text-xl font-semibold text-emerald-600 dark:text-emerald-400">{onlineCount}</p>
           <p className="text-xs text-gray-500 mt-0.5">Active Devices</p>
         </button>
         <button
           onClick={(e) => handleStatClick('devices', e.currentTarget, 'inactive')}
-          className="text-center p-2.5 bg-gray-800/40 rounded-lg cursor-pointer hover:bg-gray-700/50 transition-colors"
+          className="text-center p-2.5 bg-gray-100 dark:bg-gray-800/40 rounded-lg cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
         >
-          <p className={`text-xl font-semibold ${(offlineCount + alertingCount) > 0 ? 'text-red-400' : 'text-gray-200'}`}>
+          <p className={`text-xl font-semibold ${(offlineCount + alertingCount) > 0 ? 'text-red-500 dark:text-red-400' : 'text-gray-800 dark:text-gray-200'}`}>
             {offlineCount + alertingCount}
           </p>
           <p className="text-xs text-gray-500 mt-0.5">Inactive Devices</p>
@@ -149,17 +149,17 @@ export function NetworkDetailCard({ data }: Props) {
       <div className={`grid gap-2.5 ${hasWireless ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <button
           onClick={(e) => handleStatClick('clients', e.currentTarget)}
-          className="text-center p-2.5 bg-gray-800/40 rounded-lg cursor-pointer hover:bg-gray-700/50 transition-colors"
+          className="text-center p-2.5 bg-gray-100 dark:bg-gray-800/40 rounded-lg cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
         >
-          <p className="text-xl font-semibold text-gray-200">{liveStats.clientCount}</p>
+          <p className="text-xl font-semibold text-gray-800 dark:text-gray-200">{liveStats.clientCount}</p>
           <p className="text-xs text-gray-500 mt-0.5">Clients</p>
         </button>
         {hasWireless && (
           <button
             onClick={(e) => handleStatClick('ssids', e.currentTarget)}
-            className="text-center p-2.5 bg-gray-800/40 rounded-lg cursor-pointer hover:bg-gray-700/50 transition-colors"
+            className="text-center p-2.5 bg-gray-100 dark:bg-gray-800/40 rounded-lg cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors"
           >
-            <p className="text-xl font-semibold text-gray-200">{liveStats.ssidCount}</p>
+            <p className="text-xl font-semibold text-gray-800 dark:text-gray-200">{liveStats.ssidCount}</p>
             <p className="text-xs text-gray-500 mt-0.5">SSIDs</p>
           </button>
         )}
@@ -168,13 +168,13 @@ export function NetworkDetailCard({ data }: Props) {
       {/* Device Issues section */}
       {problemDevices.length > 0 && (
         <>
-          <div className="border-t border-gray-800" />
+          <div className="border-t border-gray-200 dark:border-gray-800" />
           <div>
             <div className="flex items-center gap-1.5 mb-2">
               <svg className="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
               </svg>
-              <span className="text-sm font-medium text-gray-300">Device Issues</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Device Issues</span>
             </div>
             <div className="space-y-1.5">
               {offlineDevices.map((d) => (
@@ -185,7 +185,7 @@ export function NetworkDetailCard({ data }: Props) {
                 >
                   <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm text-gray-300 truncate">{d.name}</p>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{d.name}</p>
                     <p className="text-xs text-gray-500">{d.model} &middot; {d.serial}</p>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -204,7 +204,7 @@ export function NetworkDetailCard({ data }: Props) {
                 >
                   <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm text-gray-300 truncate">{d.name}</p>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{d.name}</p>
                     <p className="text-xs text-gray-500">{d.model} &middot; {d.serial}</p>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -223,12 +223,12 @@ export function NetworkDetailCard({ data }: Props) {
       {/* All clear indicator when no issues */}
       {hasBreakdown && allOnline && (
         <>
-          <div className="border-t border-gray-800" />
+          <div className="border-t border-gray-200 dark:border-gray-800" />
           <div className="flex items-center gap-2 p-2 bg-emerald-500/5 border border-emerald-500/15 rounded-md">
             <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
             </svg>
-            <span className="text-sm text-emerald-400">All devices online</span>
+            <span className="text-sm text-emerald-600 dark:text-emerald-400">All devices online</span>
           </div>
         </>
       )}
