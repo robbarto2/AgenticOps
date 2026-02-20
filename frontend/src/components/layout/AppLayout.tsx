@@ -28,11 +28,11 @@ export function AppLayout() {
   const [isResizingFloat, setIsResizingFloat] = useState(false)
   const dragOffset = useRef({ x: 0, y: 0 })
 
-  // Initialize floating position to bottom-right on first render
+  // Initialize floating position to bottom-left on first render
   useEffect(() => {
     if (floatingPos.x === -1) {
       setFloatingPos({
-        x: window.innerWidth - FLOAT_DEFAULT_W - 24,
+        x: 24,
         y: window.innerHeight - FLOAT_DEFAULT_H - 24,
       })
     }

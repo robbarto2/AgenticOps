@@ -52,6 +52,7 @@ export function DevicePopup({ metadata, deviceName, onClose }: Props) {
   const addCard = useCanvasStore((s) => s.addCard)
   const [ports, setPorts] = useState<SwitchPort[]>([])
   const [loading, setLoading] = useState(false)
+  const [isDissolving, setIsDissolving] = useState(false)
 
   const isSwitch = metadata.model?.startsWith('MS') || metadata.model?.startsWith('C9')
   const isAccessPoint = metadata.model?.startsWith('MR') || metadata.model?.startsWith('CW')
@@ -92,12 +93,15 @@ export function DevicePopup({ metadata, deviceName, onClose }: Props) {
   }, [isSwitch, metadata.serial])
 
   const handleAddToCanvas = async () => {
+    // Prepare the card data first
+    let cardData: SwitchDetailCard | AccessPointDetailCard | DeviceDetailCard
+
     if (isSwitch) {
-      addCard({
+      cardData = {
         id: `card-switch-${metadata.serial}-${Date.now()}`,
         type: 'switch_detail', title: deviceName, source: 'meraki',
         data: { serial: metadata.serial, model: metadata.model || '', lanIp: metadata.lanIp, firmware: metadata.firmware, networkId: metadata.networkId, ports },
-      } as SwitchDetailCard)
+      } as SwitchDetailCard
     } else if (isAccessPoint && metadata.networkId) {
       let clientCount = 0, ssidCount = 0, channelUtilization = undefined
       try {
@@ -110,19 +114,29 @@ export function DevicePopup({ metadata, deviceName, onClose }: Props) {
         if (sr.ok)  ssidCount   = (await sr.json()).length || 0
         if (chr.ok) channelUtilization = await chr.json()
       } catch {}
-      addCard({
+      cardData = {
         id: `card-ap-${metadata.serial}-${Date.now()}`,
         type: 'access_point_detail', title: deviceName, source: 'meraki',
         data: { serial: metadata.serial, model: metadata.model || '', lanIp: metadata.lanIp, firmware: metadata.firmware, networkId: metadata.networkId, clientCount, ssidCount, status: metadata.status, tags: metadata.tags, notes: metadata.notes, channelUtilization },
-      } as AccessPointDetailCard)
+      } as AccessPointDetailCard
     } else {
-      addCard({
+      cardData = {
         id: `card-device-${metadata.serial}-${Date.now()}`,
         type: 'device_detail', title: deviceName, source: 'meraki',
         data: { serial: metadata.serial, model: metadata.model || '', deviceType: deviceInfo.type, lanIp: metadata.lanIp, firmware: metadata.firmware, networkId: metadata.networkId, status: metadata.status, tags: metadata.tags, notes: metadata.notes },
-      } as DeviceDetailCard)
+      } as DeviceDetailCard
     }
-    onClose()
+
+    // Start the dissolve animation
+    setIsDissolving(true)
+
+    // Wait for React to render + dissolve animation to complete, then add card and close
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        addCard(cardData)
+        onClose()
+      }, 220)
+    })
   }
 
   const merakiUrl = metadata.networkId && metadata.serial
@@ -140,7 +154,7 @@ export function DevicePopup({ metadata, deviceName, onClose }: Props) {
       <div className="absolute inset-0 bg-black/40" />
       <div
         ref={popupRef}
-        className="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl"
+        className={`relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl ${isDissolving ? 'animate-popup-dissolve' : ''}`}
         style={{ width: popupWidth, maxHeight: '80vh', overflow: 'auto' }}
       >
         {/* Header */}
@@ -173,42 +187,42 @@ export function DevicePopup({ metadata, deviceName, onClose }: Props) {
 
           {metadata.model && (
             <div>
-              <span className="text-xs text-gray-500">Model</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300">
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Model</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">
                 {metadata.model}{isSwitch && ports.length > 0 ? ` • ${ports.length} ports` : ''}
               </p>
             </div>
           )}
 
           <div>
-            <span className="text-xs text-gray-500">Serial</span>
-            <p className="text-xs text-gray-600 dark:text-gray-400 font-mono">{metadata.serial}</p>
+            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Serial</span>
+            <p className="text-sm text-gray-700 dark:text-gray-300 font-mono">{metadata.serial}</p>
           </div>
 
           {metadata.lanIp && (
             <div>
-              <span className="text-xs text-gray-500">IP Address</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300 font-mono">{metadata.lanIp}</p>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">IP Address</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{metadata.lanIp}</p>
             </div>
           )}
 
           {metadata.firmware && (
             <div>
-              <span className="text-xs text-gray-500">Firmware</span>
-              <p className="text-xs text-gray-600 dark:text-gray-400 font-mono">{metadata.firmware}</p>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Firmware</span>
+              <p className="text-sm text-gray-700 dark:text-gray-300 font-mono">{metadata.firmware}</p>
             </div>
           )}
 
           {metadata.notes && (
             <div>
-              <span className="text-xs text-gray-500">Notes</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.notes}</p>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Notes</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.notes}</p>
             </div>
           )}
 
           {metadata.tags && metadata.tags.length > 0 && (
             <div>
-              <span className="text-xs text-gray-500">Tags</span>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Tags</span>
               <div className="flex flex-wrap gap-1 mt-0.5">
                 {metadata.tags.map((tag) => (
                   <span key={tag} className="px-1.5 py-0.5 text-xs bg-blue-500/10 text-blue-400 rounded border border-blue-500/20">
@@ -248,7 +262,7 @@ export function DevicePopup({ metadata, deviceName, onClose }: Props) {
           <>
             <div className="border-t border-gray-200 dark:border-gray-800" />
             <div className="px-3 py-2">
-              <span className="text-xs text-gray-500">Port Configuration</span>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Port Configuration</span>
               <div className="mt-1.5 bg-gradient-to-b from-gray-200 to-gray-300 dark:from-gray-800 dark:to-gray-900 rounded-xl p-4 border-2 border-gray-400 dark:border-gray-700 shadow-lg">
                 <div className="grid grid-cols-12 gap-1.5">
                   {ports.map((port) => {

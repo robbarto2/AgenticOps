@@ -64,7 +64,7 @@ export function CardHeader({ title, source, collapsed, onCollapse, onClose }: Pr
   const device = detectDeviceType(title)
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-300/50 dark:border-gray-700/50 bg-gray-100/50 dark:bg-gray-800/50 rounded-t-lg">
+    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-300/50 dark:border-gray-700/50 bg-gray-100/50 dark:bg-gray-800/50 rounded-t-lg cursor-grab active:cursor-grabbing">
       <div className="flex items-center gap-2.5 min-w-0">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{title}</h3>
         <span
@@ -95,7 +95,7 @@ export function CardHeader({ title, source, collapsed, onCollapse, onClose }: Pr
       <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
         <button
           onClick={onCollapse}
-          className="p-1.5 rounded hover:bg-gray-300/50 dark:hover:bg-gray-700/50 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          className="p-1.5 rounded hover:bg-gray-300/50 dark:hover:bg-gray-700/50 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
           title={collapsed ? 'Expand' : 'Collapse'}
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -108,7 +108,7 @@ export function CardHeader({ title, source, collapsed, onCollapse, onClose }: Pr
         </button>
         <button
           onClick={onClose}
-          className="p-1.5 rounded hover:bg-red-500/20 text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+          className="p-1.5 rounded hover:bg-red-500/20 text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer"
           title="Close"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

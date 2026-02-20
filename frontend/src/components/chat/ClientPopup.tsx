@@ -117,49 +117,49 @@ export function ClientPopup({ metadata, clientName, onClose }: Props) {
           </div>
 
           <div>
-            <span className="text-xs text-gray-500">MAC Address</span>
-            <p className="text-xs text-gray-800 dark:text-gray-300 font-mono">{metadata.mac}</p>
+            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">MAC Address</span>
+            <p className="text-sm text-gray-700 dark:text-gray-300 font-mono">{metadata.mac}</p>
           </div>
 
           {metadata.ip && (
             <div>
-              <span className="text-xs text-gray-500">IP Address</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300 font-mono">{metadata.ip}</p>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">IP Address</span>
+              <p className="text-sm text-gray-700 dark:text-gray-300 font-mono">{metadata.ip}</p>
             </div>
           )}
 
           {metadata.vlan && metadata.vlan !== '-' && (
             <div>
-              <span className="text-xs text-gray-500">VLAN</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.vlan}</p>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">VLAN</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.vlan}</p>
             </div>
           )}
 
           {metadata.ssid && metadata.ssid !== '-' && (
             <div>
-              <span className="text-xs text-gray-500">SSID</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.ssid}</p>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">SSID</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.ssid}</p>
             </div>
           )}
 
           {metadata.manufacturer && metadata.manufacturer !== '-' && (
             <div>
-              <span className="text-xs text-gray-500">Manufacturer</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.manufacturer}</p>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Manufacturer</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.manufacturer}</p>
             </div>
           )}
 
           {metadata.networkName && (
             <div>
-              <span className="text-xs text-gray-500">Network</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.networkName}</p>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Network</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.networkName}</p>
             </div>
           )}
 
           {metadata.lastSeen && (
             <div>
-              <span className="text-xs text-gray-500">Last Seen</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300">{new Date(metadata.lastSeen).toLocaleString()}</p>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Last Seen</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{new Date(metadata.lastSeen).toLocaleString()}</p>
             </div>
           )}
         </div>

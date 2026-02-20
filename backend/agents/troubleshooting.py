@@ -12,8 +12,10 @@ from langgraph.types import StreamWriter
 
 from agents.state import AgentState
 from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, needs_forced_summary, safe_writer
+from agents.table_extractor import extract_test_table
 from agents.tools import build_langchain_tools
 from config import settings
+from mcp_client.manager import mcp_manager
 from prompts import load_prompt
 from skills.loader import load_skills_for_agent
 
@@ -138,9 +140,47 @@ async def troubleshooting_node(state: AgentState, writer: StreamWriter) -> dict:
     # Advance plan step for multi-agent routing
     plan_step = state.get("plan_step", 0)
 
+    # Batch-fetch metrics if the LLM gathered test listings but didn't fetch metrics.
+    has_test_results = any("test" in r.get("tool", "").lower() and "metrics" not in r.get("tool", "").lower() for r in tool_results)
+    has_metrics = any("metrics" in r.get("tool", "").lower() for r in tool_results)
+    if has_test_results and not has_metrics and mcp_manager.te_connected:
+        from datetime import datetime, timedelta, timezone as tz
+        end_dt = datetime.now(tz.utc)
+        start_dt = end_dt - timedelta(days=1)
+        start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        for metric_id in ("WEB_AVAILABILITY", "WEB_TTFB", "NET_LATENCY", "NET_LOSS"):
+            emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "running"})
+            try:
+                metrics_result = await asyncio.wait_for(
+                    mcp_manager.call_tool("get_network_app_synthetics_metrics", {
+                        "metric_id": metric_id,
+                        "start_date": start_str,
+                        "end_date": end_str,
+                        "aggregation_type": "MEAN",
+                        "group_by": "TEST",
+                    }),
+                    timeout=15,
+                )
+                content = metrics_result.get("content", "")
+                is_error = "error" in metrics_result or (isinstance(content, str) and content.strip().lower().startswith("error"))
+                if not is_error and content:
+                    tool_results.append({"tool": "get_network_app_synthetics_metrics", "args": {"metric_id": metric_id}, "result": content})
+                    logger.info("Troubleshooting agent: fetched %s OK", metric_id)
+            except Exception as e:
+                logger.warning("Troubleshooting agent: %s fetch failed: %s", metric_id, e)
+            emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "complete"})
+
+    # Extract interactive tables from ThousandEyes test data if present
+    table_data = extract_test_table(tool_results)
+    if table_data:
+        logger.info("Troubleshooting agent: extracted %d interactive tables", len(table_data))
+
     return {
         "messages": [response],
         "tool_results": tool_results,
         "agent_events": agent_events,
+        "table_data": table_data,
         "plan_step": plan_step + 1,
     }

@@ -9,13 +9,16 @@ export function useCanvas() {
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      // Use ReactFlow's built-in applyNodeChanges for proper handling
-      const updatedNodes = applyNodeChanges(changes, nodes)
+      // Always read latest nodes from the store to avoid stale closures
+      // (e.g. toggleCardCollapse updates nodes, then React Flow fires a
+      // dimension change — using the closure's `nodes` would overwrite it)
+      const currentNodes = useCanvasStore.getState().nodes
+      const updatedNodes = applyNodeChanges(changes, currentNodes)
 
       // Keep stack positions in sync when dragging stack nodes
       changes.forEach((change) => {
         if (change.type === 'position' && 'id' in change && change.position) {
-          const node = nodes.find((n) => n.id === change.id)
+          const node = currentNodes.find((n) => n.id === change.id)
           if (node?.type === 'stackNode') {
             const stacks = useCanvasStore.getState().stacks
             const stack = stacks[node.id]
@@ -33,7 +36,7 @@ export function useCanvas() {
 
       setNodes(updatedNodes)
     },
-    [nodes, setNodes]
+    [setNodes]
   )
 
   const onEdgesChange = useCallback(

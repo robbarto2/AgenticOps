@@ -65,10 +65,36 @@ const DEVICE_PREFIX_MAP: Record<string, { icon: DeviceIconType; label: string }>
   MG: { icon: 'gateway', label: 'Gateway' },
 }
 
+// Keyword → device type mapping for title-based detection
+const DEVICE_KEYWORD_MAP: [RegExp, DeviceIconType, string][] = [
+  [/\b(router|appliance)s?\b/i, 'appliance', 'Appliance'],
+  [/\bswitche?s?\b/i, 'switch', 'Switch'],
+  [/\b(access\s+point|wireless\s+ap)s?\b/i, 'wifi', 'Wireless AP'],
+  [/\bcameras?\b/i, 'camera', 'Camera'],
+  [/\bsensors?\b/i, 'sensor', 'Sensor'],
+  [/\bgateways?\b/i, 'gateway', 'Gateway'],
+]
+
 export function detectDeviceType(title: string): DeviceTypeInfo {
-  const match = title.match(/\b(MR|MS|MX|MT|MV|MG|C9|Z)\d/i)
-  if (!match) return { icon: null, label: null }
-  const prefix = match[1].toUpperCase()
-  const entry = DEVICE_PREFIX_MAP[prefix]
-  return entry ? { icon: entry.icon, label: entry.label } : { icon: null, label: null }
+  // 1. Model number match (e.g., MX250, MS225-24P)
+  const modelMatch = title.match(/\b(MR|MS|MX|MT|MV|MG|C9|Z)\d/i)
+  if (modelMatch) {
+    const prefix = modelMatch[1].toUpperCase()
+    const entry = DEVICE_PREFIX_MAP[prefix]
+    if (entry) return { icon: entry.icon, label: entry.label }
+  }
+
+  // 2. Bare Meraki prefix (e.g., "MX Routers", "MS Switches")
+  const prefixMatch = title.match(/\b(MR|MS|MX|MT|MV|MG)\b/)
+  if (prefixMatch) {
+    const entry = DEVICE_PREFIX_MAP[prefixMatch[1]]
+    if (entry) return { icon: entry.icon, label: entry.label }
+  }
+
+  // 3. Device type keywords (e.g., "Alerting Routers", "Offline Switches")
+  for (const [pattern, icon, label] of DEVICE_KEYWORD_MAP) {
+    if (pattern.test(title)) return { icon, label }
+  }
+
+  return { icon: null, label: null }
 }

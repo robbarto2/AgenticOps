@@ -17,6 +17,7 @@ _DEVICE_TYPE_PREFIXES = {
     "wireless": ["MR", "CW"],
     "appliance": ["MX"],
     "firewall": ["MX"],
+    "router": ["MX"],
     "camera": ["MV"],
     "sensor": ["MT"],
     "gateway": ["MG"],
@@ -153,7 +154,31 @@ def _extract_network_device_counts(tool_results: list[dict]) -> dict[str, dict]:
     return counts
 
 
-def extract_network_table(tool_results: list[dict]) -> list[dict]:
+def _detect_network_health_filter(user_query: str) -> str | None:
+    """Detect if user is asking for networks filtered by device health.
+
+    Returns:
+        "alerting" - networks with alerting devices
+        "offline"  - networks with offline devices
+        "problems" - networks with any unhealthy devices (offline or alerting)
+        None       - no health filter requested
+    """
+    if not user_query:
+        return None
+
+    q = user_query.lower()
+
+    if any(term in q for term in ["alerting", "alert", "alerts"]):
+        return "alerting"
+    if any(term in q for term in ["offline", "down", "not online", "disconnected"]):
+        return "offline"
+    if any(term in q for term in ["problem", "problems", "issue", "issues", "unhealthy"]):
+        return "problems"
+
+    return None
+
+
+def extract_network_table(tool_results: list[dict], user_query: str = "") -> list[dict]:
     """Find getOrganizationNetworks results and build structured table data.
 
     Returns a list of table_data dicts suitable for sending as WebSocket events.
@@ -164,6 +189,11 @@ def extract_network_table(tool_results: list[dict]) -> list[dict]:
 
     # Build per-network device counts from status data
     device_counts = _extract_network_device_counts(tool_results)
+
+    # Detect health filter from user query
+    health_filter = _detect_network_health_filter(user_query)
+    if health_filter:
+        logger.info("extract_network_table: detected health filter '%s'", health_filter)
 
     for result in tool_results:
         tool_name = result.get("tool", "")
@@ -244,6 +274,18 @@ def extract_network_table(tool_results: list[dict]) -> list[dict]:
                 status_type = "warning"
             else:
                 status_type = "normal"
+
+            # Apply health filter — skip networks that don't match
+            if health_filter:
+                has_offline = bool(device_offline and device_offline > 0)
+                has_alerting = bool(device_alerting and device_alerting > 0)
+
+                if health_filter == "alerting" and not has_alerting:
+                    continue
+                elif health_filter == "offline" and not has_offline:
+                    continue
+                elif health_filter == "problems" and not (has_offline or has_alerting):
+                    continue
 
             rows.append({
                 "id": network_id,
@@ -464,13 +506,13 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
 
     # Detect if user is asking for devices with specific status
     filter_status = None
-    if any(term in query_lower for term in ["offline", "down", "not online", "disconnected"]):
+    if any(term in query_lower for term in ["offline", "down", "not online", "disconnected", "inactive", "dormant"]):
         filter_status = ["offline", "dormant"]
-        logger.info("extract_device_table: detected filter for offline/dormant devices")
+        logger.info("extract_device_table: detected filter for offline/dormant/inactive devices")
     elif "online" in query_lower and "not online" not in query_lower:
         filter_status = ["online"]
         logger.info("extract_device_table: detected filter for online devices")
-    elif "alerting" in query_lower:
+    elif any(term in query_lower for term in ["alerting", "alert", "alerts"]):
         filter_status = ["alerting"]
         logger.info("extract_device_table: detected filter for alerting devices")
 
@@ -884,6 +926,127 @@ def _is_test_result(result: dict) -> bool:
     return tool_name in _TEST_TOOL_NAMES
 
 
+def _avg_metric(data_points: list[dict], *keys: str) -> float | None:
+    """Compute the average of a metric across data points, trying multiple key names."""
+    values = []
+    for dp in data_points:
+        if not isinstance(dp, dict):
+            continue
+        for key in keys:
+            val = dp.get(key)
+            if val is not None:
+                try:
+                    values.append(float(val))
+                except (ValueError, TypeError):
+                    pass
+                break
+    return sum(values) / len(values) if values else None
+
+
+def _extract_test_metrics_map(tool_results: list[dict]) -> dict[str, dict]:
+    """Build a test_id → metrics map from get_network_app_synthetics_metrics results.
+
+    Handles batch results (grouped by TEST, with metric_id in args) as well as
+    legacy per-test results.
+
+    Returns dict with keys: avgLatency, packetLoss, availability, hasAlerts
+    """
+    metrics_map: dict[str, dict] = {}
+
+    # Mapping from ThousandEyes metric_id enum → our internal metric key
+    _METRIC_KEY_MAP = {
+        "NET_LATENCY": "avgLatency",
+        "WEB_TTFB": "avgLatency",
+        "WEB_PAGE_LOAD": "avgLatency",
+        "DNS_SERVER_TIME": "avgLatency",
+        "NET_LOSS": "packetLoss",
+        "WEB_AVAILABILITY": "availability",
+    }
+
+    for result in tool_results:
+        tool_name = result.get("tool", "")
+        if "metrics" not in tool_name.lower():
+            continue
+
+        raw = result.get("result", "")
+        parsed = _parse_result(raw)
+        if parsed is None:
+            logger.debug("_extract_test_metrics_map: parse failed for '%s'", tool_name)
+            continue
+
+        args = result.get("args", {})
+        metric_id = args.get("metric_id", "")
+        our_key = _METRIC_KEY_MAP.get(metric_id)
+
+        # --- Batch mode: metric_id in args, response grouped by TEST ---
+        if metric_id and our_key:
+            # ThousandEyes returns CSV format: {"names": {...}, "csv": "r,n,TEST,v,m\n..."}
+            if isinstance(parsed, dict) and "csv" in parsed:
+                csv_str = parsed["csv"]
+                # Parse CSV: columns are r (round), n (agents), TEST (test_id), v (value), m (margin)
+                lines = csv_str.strip().split("\n")
+                if len(lines) > 1:
+                    # Accumulate values per test_id for averaging
+                    test_values: dict[str, list[float]] = {}
+                    for line in lines[1:]:  # Skip header
+                        parts = line.split(",")
+                        if len(parts) >= 4:
+                            tid = parts[2].strip()
+                            val_str = parts[3].strip()
+                            if tid and val_str:
+                                try:
+                                    test_values.setdefault(tid, []).append(float(val_str))
+                                except ValueError:
+                                    pass
+                    # Compute averages and store in metrics_map
+                    for tid, vals in test_values.items():
+                        if not vals:
+                            continue
+                        avg_val = sum(vals) / len(vals)
+                        if tid not in metrics_map:
+                            metrics_map[tid] = {"avgLatency": None, "packetLoss": None, "availability": None, "hasAlerts": False}
+                        # Don't overwrite latency if we already have it (WEB_TTFB takes priority)
+                        if our_key == "avgLatency" and metrics_map[tid].get("avgLatency") is not None:
+                            continue
+                        metrics_map[tid][our_key] = avg_val
+                    logger.info("_extract_test_metrics_map: CSV batch %s → %d test values", metric_id, len(test_values))
+            continue
+
+        # --- Legacy per-test mode: testId in args ---
+        test_id = args.get("testId") or args.get("testid") or args.get("test_id")
+        if not test_id:
+            continue
+
+        avg_latency = None
+        packet_loss = None
+        availability = None
+
+        metrics_payload = parsed
+        if isinstance(parsed, dict):
+            metrics_payload = parsed.get("metrics") or parsed.get("data") or parsed.get("results") or parsed
+
+        if isinstance(metrics_payload, list) and metrics_payload:
+            avg_latency = _avg_metric(metrics_payload, "avgResponseTime", "responseTime", "avgLatency", "averageLatency", "totalTime", "waitTime")
+            packet_loss = _avg_metric(metrics_payload, "loss", "packetLoss", "errorCount")
+            availability = _avg_metric(metrics_payload, "availability")
+        elif isinstance(metrics_payload, dict):
+            avg_latency = metrics_payload.get("avgResponseTime") or metrics_payload.get("responseTime") or metrics_payload.get("avgLatency")
+            packet_loss = metrics_payload.get("loss") or metrics_payload.get("packetLoss")
+            availability = metrics_payload.get("availability")
+            try: avg_latency = float(avg_latency) if avg_latency is not None else None
+            except (ValueError, TypeError): avg_latency = None
+            try: packet_loss = float(packet_loss) if packet_loss is not None else None
+            except (ValueError, TypeError): packet_loss = None
+            try: availability = float(availability) if availability is not None else None
+            except (ValueError, TypeError): availability = None
+
+        if avg_latency is not None or packet_loss is not None or availability is not None:
+            metrics_map[str(test_id)] = {"avgLatency": avg_latency, "packetLoss": packet_loss, "availability": availability, "hasAlerts": False}
+
+    logger.info("_extract_test_metrics_map: extracted metrics for %d tests", len(metrics_map))
+    return metrics_map
+
+
 def extract_test_table(tool_results: list[dict]) -> list[dict]:
     """Find ThousandEyes test listing results and build structured table data.
 
@@ -892,6 +1055,9 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
     tables = []
     seen_test_sets = set()  # Track unique sets of test IDs to prevent duplicates
     logger.info("extract_test_table: scanning %d tool results", len(tool_results))
+
+    # Build test_id → metrics map from get_network_app_synthetics_metrics results
+    test_metrics_map = _extract_test_metrics_map(tool_results)
 
     for result in tool_results:
         tool_name = result.get("tool", "")
@@ -927,7 +1093,7 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
             if not isinstance(test, dict):
                 continue
 
-            test_id = test.get("testId") or test.get("id", "")
+            test_id = test.get("testId") or test.get("testid") or test.get("id", "")
             test_name = test.get("testName") or test.get("name", "")
             test_type = test.get("type", "")
             target = test.get("url") or test.get("server") or test.get("domain") or test.get("target", "")
@@ -938,9 +1104,26 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
             agents = test.get("agents") or test.get("agentIds") or []
             agent_count = len(agents) if isinstance(agents, list) else 0
 
+            # Get metrics if available
+            metrics = test_metrics_map.get(str(test_id), {})
+            avg_latency = metrics.get("avgLatency")
+            packet_loss = metrics.get("packetLoss")
+            has_alerts = metrics.get("hasAlerts", False)
+
+            # Format metrics for display
+            latency_str = f"{avg_latency:.1f}ms" if avg_latency is not None else "—"
+            loss_str = f"{packet_loss:.2f}%" if packet_loss is not None else "—"
+
             # Determine status
             status = "Enabled" if enabled else "Disabled"
-            status_type = "normal" if enabled else "warning"
+
+            # Set status_type based on alerts or disabled state
+            if has_alerts:
+                status_type = "error"  # Red row for tests with alerts
+            elif not enabled:
+                status_type = "warning"  # Yellow row for disabled tests
+            else:
+                status_type = "normal"
 
             # Format interval (in seconds)
             if interval >= 3600:
@@ -956,7 +1139,8 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
                     test_name,
                     test_type,
                     target,
-                    interval_str,
+                    latency_str,
+                    loss_str,
                     str(agent_count),
                     status,
                 ],
@@ -984,7 +1168,7 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
                 "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
                 "entity_type": "test",
                 "source": "thousandeyes",
-                "columns": ["Test Name", "Type", "Target", "Interval", "Agents", "Status"],
+                "columns": ["Test Name", "Type", "Target", "Avg Latency", "Packet Loss", "Agents", "Status"],
                 "rows": rows,
             }
             tables.append(table)
@@ -1151,6 +1335,373 @@ def extract_client_table(tool_results: list[dict]) -> list[dict]:
         logger.info("extract_client_table: no client tables extracted from tool results")
 
     return tables
+
+
+# ---------------------------------------------------------------------------
+# Topology card builder
+# ---------------------------------------------------------------------------
+
+# Tool/method names for LLDP/CDP neighbor data
+_LLDP_CDP_TOOL_NAMES = {"getdevicelldpcdp"}
+
+
+def _is_lldp_cdp_result(result: dict) -> bool:
+    """Check if a tool result contains LLDP/CDP neighbor data."""
+    tool_name = result.get("tool", "")
+
+    # Direct match: getDeviceLldpCdp
+    if tool_name.lower().rstrip() in _LLDP_CDP_TOOL_NAMES:
+        return True
+
+    # call_meraki_api with LLDP/CDP path (e.g. /devices/{serial}/lldpCdp)
+    if tool_name == "call_meraki_api":
+        args = result.get("args", {})
+        path = args.get("path", "")
+        if "lldpCdp" in path or "lldpcdp" in path.lower():
+            return True
+
+    return False
+
+
+def _extract_serial_from_lldp_args(result: dict) -> str | None:
+    """Extract the device serial from an LLDP/CDP tool call's arguments."""
+    args = result.get("args", {})
+
+    # call_meraki_api: path = /devices/{serial}/lldpCdp
+    path = args.get("path", "")
+    if path:
+        parts = path.strip("/").split("/")
+        if len(parts) >= 2 and parts[0] == "devices":
+            return parts[1]
+
+    # getDeviceLldpCdp direct tool: serial in args
+    serial = args.get("serial", "")
+    if serial:
+        return serial
+
+    return None
+
+
+def _normalize_mac(mac: str) -> str:
+    """Normalize MAC address to uppercase, no separators."""
+    return mac.upper().replace(":", "").replace("-", "").replace(".", "")
+
+
+def _model_to_topology_type(model: str) -> str:
+    """Map Meraki model prefix to topology device type string."""
+    if not model:
+        return "unknown"
+    prefix = model[:2].upper()
+    mapping = {
+        "MX": "mx",
+        "MS": "ms",
+        "MR": "mr",
+        "MV": "mv",
+        "MG": "mg",
+        "MT": "mt",
+        "CW": "mr",  # Catalyst Wireless → AP
+        "C9": "ms",  # Catalyst 9K → switch
+    }
+    return mapping.get(prefix, "unknown")
+
+
+def _resolve_neighbor(
+    port_data: dict,
+    serial_set: set[str],
+    mac_to_serial: dict[str, str],
+    ip_to_serial: dict[str, str],
+    name_to_serial: dict[str, str],
+) -> str | None:
+    """Try to resolve an LLDP/CDP neighbor entry to a known device serial."""
+
+    # --- LLDP data ---
+    lldp = port_data.get("lldp") or {}
+    if lldp:
+        # 1. chassisId (usually the neighbor's MAC)
+        chassis_id = lldp.get("chassisId", "")
+        if chassis_id:
+            normalized = _normalize_mac(chassis_id)
+            if normalized in mac_to_serial:
+                return mac_to_serial[normalized]
+
+        # 2. managementAddress (IP)
+        mgmt_addr = lldp.get("managementAddress", "")
+        if mgmt_addr and mgmt_addr in ip_to_serial:
+            return ip_to_serial[mgmt_addr]
+
+        # 3. systemName (hostname)
+        sys_name = lldp.get("systemName", "")
+        if sys_name:
+            name_lower = sys_name.lower()
+            if name_lower in name_to_serial:
+                return name_to_serial[name_lower]
+
+    # --- CDP data ---
+    cdp = port_data.get("cdp") or {}
+    if cdp:
+        # 1. deviceId — may be a serial, hostname, or FQDN
+        device_id = cdp.get("deviceId", "")
+        if device_id:
+            # Try as exact serial
+            if device_id in serial_set:
+                return device_id
+            # Try as hostname (strip FQDN)
+            device_id_lower = device_id.lower().split(".")[0]
+            if device_id_lower in name_to_serial:
+                return name_to_serial[device_id_lower]
+
+        # 2. address (IP)
+        addr = cdp.get("address", "")
+        if addr and addr in ip_to_serial:
+            return ip_to_serial[addr]
+
+    return None
+
+
+def _extract_all_devices(tool_results: list[dict]) -> list[dict]:
+    """Extract the device list from getNetworkDevices results in tool_results."""
+    for result in tool_results:
+        if not _is_device_result(result):
+            continue
+
+        raw = result.get("result", "")
+        parsed = _parse_result(raw)
+        if parsed is None:
+            continue
+
+        # Handle wrapped/truncated responses
+        if isinstance(parsed, dict):
+            if parsed.get("_response_truncated") and parsed.get("_full_response_cached"):
+                full_data = _read_cached_file(parsed["_full_response_cached"])
+                if full_data is not None:
+                    parsed = full_data
+                else:
+                    parsed = parsed.get("_preview") or []
+            else:
+                sample = (
+                    parsed.get("data")
+                    or parsed.get("results")
+                    or parsed.get("_preview")
+                    or parsed.get("_sample")
+                )
+                if isinstance(sample, list):
+                    parsed = sample
+                else:
+                    continue
+
+        if isinstance(parsed, list) and parsed:
+            return parsed
+
+    return []
+
+
+def _extract_topology_network_name(tool_results: list[dict], devices: list[dict]) -> str:
+    """Determine the network name from tool results or device data."""
+    # Try network name map first
+    name_map = _extract_network_name_map(tool_results)
+    if name_map and devices:
+        # All devices in a topology query share the same networkId
+        network_id = None
+        for d in devices:
+            nid = d.get("networkId", "")
+            if nid:
+                network_id = nid
+                break
+        if network_id and network_id in name_map:
+            return name_map[network_id]
+
+    # Fallback: check if any device has a networkName field
+    for d in devices:
+        name = d.get("networkName", "")
+        if name:
+            return name
+
+    return ""
+
+
+def extract_topology_card(tool_results: list[dict]) -> dict | None:
+    """Parse topology agent tool_results and build a topology card dict.
+
+    Returns a complete card dict ready to send to the frontend, or None
+    if there is insufficient data (no devices found).
+    """
+    # 1. Extract device list
+    devices = _extract_all_devices(tool_results)
+    if not devices:
+        logger.info("extract_topology_card: no devices found in tool results")
+        return None
+
+    logger.info("extract_topology_card: found %d devices", len(devices))
+
+    # 2. Build lookup maps for neighbor resolution
+    serial_set: set[str] = set()
+    mac_to_serial: dict[str, str] = {}
+    ip_to_serial: dict[str, str] = {}
+    name_to_serial: dict[str, str] = {}
+
+    for d in devices:
+        serial = d.get("serial", "")
+        if not serial:
+            continue
+        serial_set.add(serial)
+        mac = d.get("mac", "")
+        if mac:
+            mac_to_serial[_normalize_mac(mac)] = serial
+        lan_ip = d.get("lanIp", "")
+        if lan_ip:
+            ip_to_serial[lan_ip] = serial
+        name = d.get("name", "")
+        if name:
+            name_to_serial[name.lower()] = serial
+
+    # 3. Build status map (from getOrganizationDevicesStatuses if available)
+    status_map = _extract_device_status_map(tool_results)
+
+    # 4. Build nodes
+    nodes: list[dict] = []
+    for d in devices:
+        serial = d.get("serial", "")
+        if not serial:
+            continue
+        model = d.get("model", "")
+        device_type = _model_to_topology_type(model)
+        # Prefer status from status map, fall back to device data, then default
+        status = (status_map.get(serial) or d.get("status") or "online").lower()
+        if status not in ("online", "offline", "dormant"):
+            status = "online"
+        nodes.append({
+            "id": serial,
+            "label": d.get("name", "") or serial,
+            "deviceType": device_type,
+            "status": status,
+            "ip": d.get("lanIp", ""),
+            "model": model,
+            "serial": serial,
+        })
+
+    if not nodes:
+        logger.info("extract_topology_card: no valid nodes built")
+        return None
+
+    # 5. Build links from LLDP/CDP results
+    links: list[dict] = []
+    seen_links: set[frozenset[str]] = set()
+
+    for result in tool_results:
+        if not _is_lldp_cdp_result(result):
+            continue
+
+        source_serial = _extract_serial_from_lldp_args(result)
+        if not source_serial or source_serial not in serial_set:
+            continue
+
+        raw = result.get("result", "")
+        parsed = _parse_result(raw)
+        if not isinstance(parsed, dict):
+            continue
+
+        ports = parsed.get("ports", {})
+        if not isinstance(ports, dict):
+            continue
+
+        for port_id, port_data in ports.items():
+            if not isinstance(port_data, dict):
+                continue
+
+            neighbor_serial = _resolve_neighbor(
+                port_data, serial_set, mac_to_serial, ip_to_serial, name_to_serial
+            )
+            if not neighbor_serial or neighbor_serial not in serial_set:
+                continue
+
+            # Skip self-links
+            if neighbor_serial == source_serial:
+                continue
+
+            # Deduplicate bidirectional links (A→B and B→A = one link)
+            link_key = frozenset([source_serial, neighbor_serial])
+            if link_key in seen_links:
+                continue
+            seen_links.add(link_key)
+
+            links.append({
+                "source": source_serial,
+                "target": neighbor_serial,
+                "linkType": "wired",
+                "label": port_id,
+            })
+
+    logger.info(
+        "extract_topology_card: built %d links from LLDP/CDP data", len(links)
+    )
+
+    # 6. Fallback star topology if no LLDP/CDP links found
+    if not links:
+        logger.info("extract_topology_card: no LLDP/CDP links, building fallback star topology")
+        mx_nodes = [n for n in nodes if n["deviceType"] == "mx"]
+        ms_nodes = [n for n in nodes if n["deviceType"] == "ms"]
+        mr_nodes = [n for n in nodes if n["deviceType"] == "mr"]
+        other_nodes = [n for n in nodes if n["deviceType"] not in ("mx", "ms", "mr")]
+
+        # MX at center
+        if mx_nodes:
+            center = mx_nodes[0]["id"]
+            for ms in ms_nodes:
+                links.append({"source": center, "target": ms["id"], "linkType": "wired"})
+            # APs connect to first switch (or MX if no switches)
+            ap_parent = ms_nodes[0]["id"] if ms_nodes else center
+            for mr in mr_nodes:
+                links.append({"source": ap_parent, "target": mr["id"], "linkType": "wired"})
+            for other in other_nodes:
+                links.append({"source": center, "target": other["id"], "linkType": "wired"})
+        elif ms_nodes:
+            # No MX: first switch as center
+            center = ms_nodes[0]["id"]
+            for ms in ms_nodes[1:]:
+                links.append({"source": center, "target": ms["id"], "linkType": "wired"})
+            for mr in mr_nodes:
+                links.append({"source": center, "target": mr["id"], "linkType": "wired"})
+            for other in other_nodes:
+                links.append({"source": center, "target": other["id"], "linkType": "wired"})
+
+    # 7. Add internet node for MX/gateway devices
+    mx_serials = [n["id"] for n in nodes if n["deviceType"] == "mx"]
+    if mx_serials:
+        nodes.append({
+            "id": "internet",
+            "label": "Internet",
+            "deviceType": "internet",
+            "status": "online",
+        })
+        for mx_serial in mx_serials:
+            links.append({
+                "source": mx_serial,
+                "target": "internet",
+                "linkType": "wan",
+                "label": "WAN",
+            })
+
+    # 8. Extract network name
+    network_name = _extract_topology_network_name(tool_results, devices)
+
+    # 9. Build card
+    card = {
+        "id": f"topo-{uuid.uuid4().hex[:8]}",
+        "type": "topology",
+        "title": f"Network Topology — {network_name}" if network_name else "Network Topology",
+        "source": "meraki",
+        "data": {
+            "nodes": nodes,
+            "links": links,
+            "networkName": network_name or "",
+        },
+    }
+
+    logger.info(
+        "extract_topology_card: built card with %d nodes, %d links (network=%s)",
+        len(nodes), len(links), network_name,
+    )
+    return card
 
 
 def _parse_result(raw: object) -> object | None:

@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useEffect } from 'react'
 import { NodeResizer } from '@xyflow/react'
 import type { NodeProps } from '@xyflow/react'
 import type { AnyCard } from '../../types/card'
@@ -53,7 +53,17 @@ function CardNodeInner({ data }: NodeProps) {
   const card = data as unknown as AnyCard
   const removeCard = useCanvasStore((s) => s.removeCard)
   const toggleCollapse = useCanvasStore((s) => s.toggleCardCollapse)
+  const clearNewFlag = useCanvasStore((s) => s.clearNewFlag)
   const accent = cardAccentColor(card.type)
+  const isNew = (card as any).isNew === true
+
+  // Clear the isNew flag after animation completes
+  useEffect(() => {
+    if (isNew) {
+      const timer = setTimeout(() => clearNewFlag(card.id), 320)
+      return () => clearTimeout(timer)
+    }
+  }, [isNew, card.id, clearNewFlag])
 
   const renderContent = () => {
     if (card.collapsed) return null
@@ -111,7 +121,7 @@ function CardNodeInner({ data }: NodeProps) {
           border: 'none',
         }}
       />
-      <div className="w-full h-full p-[3px]">
+      <div className={`w-full h-full p-[3px] ${isNew ? 'animate-card-enter' : ''}`}>
       <div
         className="bg-white dark:bg-gray-900 border-[3px] rounded-lg shadow-xl overflow-hidden w-full h-full flex flex-col relative"
         style={{ borderColor: accent }}

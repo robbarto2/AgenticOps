@@ -62,6 +62,7 @@ const PROMPT_CATEGORIES: PromptCategory[] = [
     label: 'Monitoring',
     source: 'thousandeyes',
     prompts: [
+      'What applications are we tracking with ThousandEyes?',
       'What ThousandEyes tests are currently running?',
       'Are there any active ThousandEyes alerts?',
       'Show me recent ThousandEyes test failures',
@@ -76,7 +77,6 @@ const PROMPT_CATEGORIES: PromptCategory[] = [
       'Show me network path analysis for all running tests',
       'Are there any BGP route changes in the last 24 hours?',
       'Are there any routing anomalies detected?',
-      'Check ISP performance metrics',
     ],
   },
 ]
@@ -187,15 +187,19 @@ export function HelpMenu() {
       </button>
 
       {isOpen && createPortal(
-        <div
-          ref={menuRef}
-          className="fixed w-80 max-h-[75vh] overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl z-[100]"
-          style={{ top: dropdownPos.top, right: dropdownPos.right }}
-        >
-          {renderSection('Meraki', 'Meraki', 'bg-blue-500/20 text-blue-400', MERAKI_CATEGORIES)}
-          <div className="border-t border-gray-200 dark:border-gray-700" />
-          {renderSection('ThousandEyes', 'TE', 'bg-purple-500/20 text-purple-400', TE_CATEGORIES)}
-        </div>,
+        <>
+          {/* Invisible overlay to catch clicks outside the menu */}
+          <div className="fixed inset-0 z-[99]" onClick={() => setIsOpen(false)} />
+          <div
+            ref={menuRef}
+            className="fixed w-80 max-h-[75vh] overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl z-[100]"
+            style={{ top: dropdownPos.top, right: dropdownPos.right }}
+          >
+            {renderSection('Meraki', 'Meraki', 'bg-blue-500/20 text-blue-400', MERAKI_CATEGORIES)}
+            <div className="border-t border-gray-200 dark:border-gray-700" />
+            {renderSection('ThousandEyes', 'TE', 'bg-purple-500/20 text-purple-400', TE_CATEGORIES)}
+          </div>
+        </>,
         document.body
       )}
     </>

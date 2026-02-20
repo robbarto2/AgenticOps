@@ -4,6 +4,7 @@ import type { AnyCard } from '../types/card'
 import { getNextCardPosition } from '../utils/cardPositioning'
 import { getCardCategory, getCategoryLabel, getCategoryColor } from '../utils/cardCategories'
 import type { CardCategory } from '../utils/cardCategories'
+import { detectDeviceType } from '../utils/formatters'
 import { useToastStore } from './toastSlice'
 
 export interface CardStack {
@@ -35,6 +36,7 @@ interface CanvasState {
   toggleStack: (stackId: string) => void
   unstackAll: () => void
   autoLayout: () => void
+  clearNewFlag: (cardId: string) => void
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -106,7 +108,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         id: card.id,
         type: 'cardNode',
         position,
-        data: card,
+        data: { ...card, isNew: true },
         style: { width: defaultWidth, height: defaultHeight },
       }
       return {
@@ -141,7 +143,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           ),
           nodes: state.nodes.map((n) =>
             n.id === cardId
-              ? { ...n, data: { ...n.data, collapsed: true }, style: { width: currentWidth, height: 52 }, width: currentWidth, height: 52 }
+              ? { ...n, data: { ...n.data, collapsed: true }, style: { width: 250, height: 90 }, width: 250, height: 90 }
               : n
           ),
           preCollapseSizes: {
@@ -188,25 +190,37 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const cards = cardIds.map(id => cardMap.get(id)).filter(Boolean) as AnyCard[]
       if (cards.length === 0) return getCategoryLabel(category as CardCategory)
 
-      // For devices (switch_detail cards), extract model info
+      // For devices, extract device type from card data or titles
       if (category === 'device') {
-        const models = new Map<string, number>()
+        const deviceLabels = new Map<string, number>()
         for (const card of cards) {
           if (card.type === 'switch_detail') {
-            const model = card.data.model || 'Unknown'
-            models.set(model, (models.get(model) || 0) + 1)
+            const model = card.data.model || 'Switch'
+            deviceLabels.set(model, (deviceLabels.get(model) || 0) + 1)
+          } else if (card.type === 'access_point_detail') {
+            const model = card.data.model || 'Access Point'
+            deviceLabels.set(model, (deviceLabels.get(model) || 0) + 1)
+          } else if (card.type === 'device_detail') {
+            const dt = card.data.deviceType || 'Device'
+            deviceLabels.set(dt, (deviceLabels.get(dt) || 0) + 1)
+          } else {
+            // data_table or other: detect device type from title
+            const dt = detectDeviceType(card.title)
+            const label = dt.label || 'Device'
+            deviceLabels.set(label, (deviceLabels.get(label) || 0) + 1)
           }
         }
 
-        // If all same model, use specific label
-        if (models.size === 1) {
-          const [model, count] = Array.from(models.entries())[0]
-          return `${model} Switches`
+        if (deviceLabels.size === 1) {
+          const [label] = Array.from(deviceLabels.keys())
+          // Pluralize: "Switch" → "Switches", "Appliance" → "Appliances"
+          const plural = label.endsWith('ch') ? `${label}es` : label.endsWith('s') ? label : `${label}s`
+          return `${plural} (${cards.length})`
         }
-        // If mixed models, show count
-        if (models.size > 1) {
-          return `Switches (${cards.length})`
+        if (deviceLabels.size > 1) {
+          return `Devices (${cards.length})`
         }
+        return `Devices (${cards.length})`
       }
 
       // For tests, check if all same type
@@ -272,7 +286,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         type: 'stackNode',
         position,
         data: newStacks[stackId],
-        style: { width: 420 },
+        style: { width: 500 },
       })
     }
 
@@ -372,34 +386,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const state = get()
     const cardMap = new Map(state.cards.map((c) => [c.id, c]))
 
-    // Unstack everything first: collect all card nodes, including those inside stacks
-    const allStackedIds = new Set<string>()
-    for (const stack of Object.values(state.stacks)) {
-      for (const cid of stack.cardIds) allStackedIds.add(cid)
-    }
-
-    // Free card nodes (not currently inside a stack or a stack node itself)
-    const freeCardNodes = state.nodes.filter(
-      (n) => n.type === 'cardNode' && !allStackedIds.has(n.id)
+    // Layout whatever is currently visible on the canvas — preserve stacks as-is
+    const layoutNodes = state.nodes.filter(
+      (n) => n.type === 'cardNode' || n.type === 'stackNode'
     )
-
-    // Restore stacked cards as individual card nodes (positions will be overwritten)
-    const restoredNodes: Node[] = []
-    for (const cid of allStackedIds) {
-      const card = cardMap.get(cid)
-      if (!card) continue
-      // Preserve the original node's style if it still exists (e.g. expanded stack), else use defaults
-      const existingNode = state.nodes.find((n) => n.id === cid)
-      restoredNodes.push({
-        id: cid,
-        type: 'cardNode',
-        position: { x: 0, y: 0 }, // overwritten below
-        data: card,
-        style: existingNode?.style ?? { width: 650, height: 380 },
-      })
-    }
-
-    const allCardNodes = [...freeCardNodes, ...restoredNodes]
 
     const COLS = 3
     const GAP_X = 40
@@ -408,12 +398,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const START_X = 40
     const START_Y = 40
 
-    // Group by category, preserving insertion order
-    const groups = new Map<string, typeof allCardNodes>()
-    for (const node of allCardNodes) {
-      const card = cardMap.get(node.id)
-      if (!card) continue
-      const category = getCardCategory(card)
+    // Group by category. Stack nodes have their category in node.data.
+    const groups = new Map<string, typeof layoutNodes>()
+    for (const node of layoutNodes) {
+      let category: string
+      if (node.type === 'stackNode') {
+        category = (node.data as CardStack).category ?? 'other'
+      } else {
+        const card = cardMap.get(node.id)
+        if (!card) continue
+        category = getCardCategory(card)
+      }
       if (!groups.has(category)) groups.set(category, [])
       groups.get(category)!.push(node)
     }
@@ -430,12 +425,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
 
       for (const rowNodes of rows) {
-        const maxH = Math.max(...rowNodes.map((n) =>
-          n.height ?? (n.style?.height as number) ?? 380
-        ))
+        const maxH = Math.max(...rowNodes.map((n) => {
+          if (n.type === 'stackNode') return n.height ?? 220
+          return n.height ?? (n.style?.height as number) ?? 380
+        }))
         let x = START_X
         for (const node of rowNodes) {
-          const w = node.width ?? (node.style?.width as number) ?? 650
+          const w = node.width ?? (node.style?.width as number) ?? (node.type === 'stackNode' ? 500 : 650)
           updatedPositions[node.id] = { x, y: currentY }
           x += w + GAP_X
         }
@@ -445,12 +441,23 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
 
     set({
-      stacks: {},
-      preStackPositions: {},
-      nodes: allCardNodes.map((n) => ({
-        ...n,
-        position: updatedPositions[n.id] ?? n.position,
-      })),
+      nodes: state.nodes.map((n) =>
+        updatedPositions[n.id] ? { ...n, position: updatedPositions[n.id] } : n
+      ),
+      // Keep stacks in sync so double-click expand origins are correct
+      stacks: Object.fromEntries(
+        Object.entries(state.stacks).map(([id, stack]) => [
+          id,
+          updatedPositions[id] ? { ...stack, position: updatedPositions[id] } : stack,
+        ])
+      ),
     })
   },
+
+  clearNewFlag: (cardId) =>
+    set((state) => ({
+      nodes: state.nodes.map((n) =>
+        n.id === cardId ? { ...n, data: { ...n.data, isNew: false } } : n
+      ),
+    })),
 }))

@@ -25,6 +25,7 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
   const addCard = useCanvasStore((s) => s.addCard)
   const [testDetails, setTestDetails] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  const [isDissolving, setIsDissolving] = useState(false)
 
   // Close on outside click
   useEffect(() => {
@@ -94,8 +95,17 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
         metrics: testDetails?.metrics,
       },
     }
-    addCard(card)
-    onClose()
+
+    // Start the dissolve animation
+    setIsDissolving(true)
+
+    // Wait for React to render + dissolve animation to complete, then add card and close
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        addCard(card)
+        onClose()
+      }, 220)
+    })
   }
 
   const getThousandEyesUrl = () => {
@@ -120,7 +130,7 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
       <div className="absolute inset-0 bg-black/40" />
       <div
         ref={popupRef}
-        className="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl"
+        className={`relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl ${isDissolving ? 'animate-popup-dissolve' : ''}`}
         style={{ width: popupWidth, maxHeight: '85vh', overflow: 'auto' }}
       >
         {/* Header */}
@@ -155,44 +165,44 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
         {/* Metadata */}
         <div className="px-3 py-2 space-y-2">
           <div>
-            <span className="text-xs text-gray-500">Test Type</span>
-            <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.testType}</p>
+            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Test Type</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.testType}</p>
           </div>
 
           <div>
-            <span className="text-xs text-gray-500">Target</span>
-            <p className="text-xs text-gray-800 dark:text-gray-300 font-mono break-all">{metadata.target}</p>
+            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Target</span>
+            <p className="text-sm text-gray-700 dark:text-gray-300 font-mono break-all">{metadata.target}</p>
           </div>
 
           <div>
-            <span className="text-xs text-gray-500">Interval</span>
-            <p className="text-xs text-gray-800 dark:text-gray-300">Every {formatInterval(metadata.interval)}</p>
+            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Interval</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">Every {formatInterval(metadata.interval)}</p>
           </div>
 
           <div>
-            <span className="text-xs text-gray-500">Agents</span>
-            <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.agentCount} location{metadata.agentCount !== 1 ? 's' : ''}</p>
+            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Agents</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.agentCount} location{metadata.agentCount !== 1 ? 's' : ''}</p>
           </div>
 
           {testDetails?.description && (
             <div>
-              <span className="text-xs text-gray-500">Description</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300">{testDetails.description}</p>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Description</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{testDetails.description}</p>
             </div>
           )}
 
           {testDetails?.alertRules && testDetails.alertRules.length > 0 && (
             <div>
-              <span className="text-xs text-gray-500">Alert Rules</span>
-              <p className="text-xs text-gray-800 dark:text-gray-300">
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Alert Rules</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">
                 {testDetails.alertRules.length} rule{testDetails.alertRules.length !== 1 ? 's' : ''} configured
               </p>
             </div>
           )}
 
           <div>
-            <span className="text-xs text-gray-500">Test ID</span>
-            <p className="text-xs text-gray-600 dark:text-gray-400 font-mono">{metadata.testId}</p>
+            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Test ID</span>
+            <p className="text-sm text-gray-700 dark:text-gray-300 font-mono">{metadata.testId}</p>
           </div>
         </div>
 
@@ -201,7 +211,7 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
           <>
             <div className="border-t border-gray-200 dark:border-gray-800" />
             <div className="px-3 py-2">
-              <span className="text-xs text-gray-500">Performance (24h)</span>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Performance (24h)</span>
               <div className="grid grid-cols-2 gap-2 mt-1.5">
                 {testDetails.metrics.availability !== undefined && (
                   <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">

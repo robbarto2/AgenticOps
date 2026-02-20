@@ -12,6 +12,7 @@ from langgraph.types import StreamWriter
 
 from agents.state import AgentState
 from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, needs_forced_summary, safe_writer
+from agents.table_extractor import extract_topology_card
 from agents.tools import build_langchain_tools
 from config import settings
 from prompts import load_prompt
@@ -132,6 +133,11 @@ async def topology_node(state: AgentState, writer: StreamWriter) -> dict:
             response = AIMessage(content="I was unable to complete the analysis in time. Please try again with a more specific query.")
         messages.append(response)
 
+    # Build topology card programmatically from raw tool results
+    topology_card = extract_topology_card(tool_results)
+    if topology_card:
+        logger.info("Topology agent built card with %d nodes", len(topology_card["data"]["nodes"]))
+
     # Advance plan step for multi-agent routing
     plan_step = state.get("plan_step", 0)
 
@@ -139,5 +145,6 @@ async def topology_node(state: AgentState, writer: StreamWriter) -> dict:
         "messages": [response],
         "tool_results": tool_results,
         "agent_events": agent_events,
+        "cards": [topology_card] if topology_card else [],
         "plan_step": plan_step + 1,
     }

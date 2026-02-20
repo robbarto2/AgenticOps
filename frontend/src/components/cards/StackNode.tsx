@@ -168,7 +168,7 @@ function StackNodeInner({ data }: NodeProps) {
 
       {/* Front card */}
       <div
-        className="relative rounded-lg border-2 bg-white dark:bg-gray-900 shadow-lg px-5 py-4"
+        className="relative rounded-lg border-2 bg-white dark:bg-gray-900 shadow-lg px-5 py-5"
         style={{ borderColor: `${stack.color}40`, borderLeftColor: stack.color, borderLeftWidth: 4 }}
       >
         <div className="flex items-center gap-3">

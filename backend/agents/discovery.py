@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -15,7 +16,8 @@ from agents.state import AgentState
 from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, needs_forced_summary, safe_writer
 from agents.table_extractor import (
     extract_network_table, extract_device_table, extract_test_table, extract_client_table,
-    extract_uplink_table, _extract_network_device_counts,
+    extract_uplink_table, _extract_network_device_counts, _detect_network_health_filter,
+    _parse_result,
 )
 from agents.tools import build_langchain_tools
 from config import settings
@@ -170,7 +172,7 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
 
             emit({"type": "tool_call", "tool": "getOrganizationDevicesStatuses", "source": "meraki", "status": "complete"})
 
-        table_data = extract_network_table(tool_results)
+        table_data = extract_network_table(tool_results, user_query=query)
         logger.info("Discovery node: extracted %d network table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
 
@@ -178,7 +180,16 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
         # The interactive table is auto-generated, so verbose LLM prose is redundant.
         if table_data and response:
             n_networks = sum(len(t.get("rows", [])) for t in table_data)
-            summary = f"Your organization has **{n_networks} network{'s' if n_networks != 1 else ''}**."
+            health_filter = _detect_network_health_filter(query)
+
+            if health_filter == "alerting":
+                summary = f"Found **{n_networks} network{'s' if n_networks != 1 else ''}** with alerting devices."
+            elif health_filter == "offline":
+                summary = f"Found **{n_networks} network{'s' if n_networks != 1 else ''}** with offline devices."
+            elif health_filter == "problems":
+                summary = f"Found **{n_networks} network{'s' if n_networks != 1 else ''}** with device issues."
+            else:
+                summary = f"Your organization has **{n_networks} network{'s' if n_networks != 1 else ''}**."
 
             device_counts = _extract_network_device_counts(tool_results)
             if device_counts:
@@ -247,6 +258,57 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
             n_devices = sum(len(t.get("rows", [])) for t in table_data)
             response = AIMessage(content=f"Found **{n_devices} devices**.", id=response.id)
     elif _is_test_listing_query(query):
+        # Automatically fetch metrics for all tests if not already fetched
+        has_metrics = any("metrics" in r.get("tool", "").lower() for r in tool_results)
+        logger.info("Discovery node: test listing detected — has_metrics=%s, te_connected=%s", has_metrics, mcp_manager.te_connected)
+        if not has_metrics and mcp_manager.te_connected:
+            # Batch-fetch metrics using the correct API parameters.
+            # The tool requires: metric_id (enum), start_date, end_date, aggregation_type.
+            # Using group_by="TEST" returns per-test values in a single call.
+            from datetime import datetime, timedelta, timezone as tz
+            end_dt = datetime.now(tz.utc)
+            start_dt = end_dt - timedelta(days=1)
+            start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            batch_metrics = [
+                ("WEB_AVAILABILITY", "availability"),
+                ("WEB_TTFB", "web latency"),
+                ("NET_LATENCY", "network latency"),
+                ("NET_LOSS", "packet loss"),
+            ]
+            for metric_id, label in batch_metrics:
+                emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "running"})
+                try:
+                    metrics_result = await asyncio.wait_for(
+                        mcp_manager.call_tool("get_network_app_synthetics_metrics", {
+                            "metric_id": metric_id,
+                            "start_date": start_str,
+                            "end_date": end_str,
+                            "aggregation_type": "MEAN",
+                            "group_by": "TEST",
+                        }),
+                        timeout=15,
+                    )
+                    content = metrics_result.get("content", "")
+                    is_error = "error" in metrics_result or (isinstance(content, str) and content.strip().lower().startswith("error"))
+                    if not is_error and content:
+                        tool_results.append({
+                            "tool": "get_network_app_synthetics_metrics",
+                            "args": {"metric_id": metric_id},
+                            "result": content,
+                        })
+                        logger.info("Discovery node: fetched %s metrics OK (len=%d)", metric_id, len(content))
+                    else:
+                        logger.info("Discovery node: %s returned error or empty", metric_id)
+                except asyncio.TimeoutError:
+                    logger.warning("Discovery node: %s fetch timed out", metric_id)
+                except Exception as e:
+                    logger.warning("Discovery node: %s fetch failed: %s", metric_id, e)
+                emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "complete"})
+        elif has_metrics:
+            logger.info("Discovery node: skipping programmatic metrics fetch — LLM already called metrics tools")
+
         table_data = extract_test_table(tool_results)
         logger.info("Discovery node: extracted %d test table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
@@ -293,6 +355,12 @@ _NETWORK_LISTING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Networks qualified by device health: "networks with alerts", "networks with offline devices"
+_NETWORK_HEALTH_RE = re.compile(
+    r"\bnetworks?\b.*\b(alert(s|ing)?|offline|down|problem(s|atic)?|issue(s)?|unhealthy)\b",
+    re.IGNORECASE,
+)
+
 _DEVICE_LISTING_RE = re.compile(
     r"\b(list|show|get|what\s+(are\s+)?(all\s+)?(the\s+)?)\b.*(device|ap|access\s+point|switch|appliance|firewall|camera|sensor|router|gateway)(s|es)?\b",
     re.IGNORECASE,
@@ -314,7 +382,7 @@ _HEALTH_SUMMARY_RE = re.compile(
 )
 
 _TEST_LISTING_RE = re.compile(
-    r"\b(list|show|get|what\s+(are\s+)?(all\s+)?(the\s+)?)\b.*(test|tests|monitoring)\b",
+    r"\b(list|show|get|what\s+(are\s+)?(all\s+)?(the\s+)?)\b.*(test|tests|monitoring|application|applications|app|apps|track|tracking)\b",
     re.IGNORECASE,
 )
 
@@ -329,6 +397,10 @@ def _is_network_listing_query(query: str) -> bool:
     # If the query is asking about health/status/summary, don't show network table
     if _HEALTH_SUMMARY_RE.search(query):
         return False
+    # Network health queries: "networks with alerts", "networks with offline devices"
+    # These take priority even if device terms are present (the subject is "networks")
+    if _NETWORK_HEALTH_RE.search(query):
+        return True
     # Must mention listing + networks (plural), but NOT mention any device-related terms
     return bool(_NETWORK_LISTING_RE.search(query)) and not bool(_DEVICE_TERMS_RE.search(query))
 
