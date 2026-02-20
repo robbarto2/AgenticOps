@@ -124,7 +124,7 @@ async def chat_websocket(websocket: WebSocket) -> None:
                         await _send_event(websocket, "table_data", table)
 
                     # Send card directives
-                    cards = state_update.get("cards", [])
+                    cards = state_update.get("cards") or []
                     for card in cards:
                         await _send_event(websocket, "card", card)
 

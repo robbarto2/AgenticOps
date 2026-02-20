@@ -66,7 +66,8 @@ _FAST_ROUTES: list[tuple[re.Pattern, str]] = [
     # Discovery agent — uplink/WAN status queries (before generic discovery to avoid "status" matching troubleshooting)
     (re.compile(r"\b(uplinks?|wan\s+status|wan\s+uplinks?)\b", re.IGNORECASE), "discovery"),
     # Discovery agent — listing/inventory queries
-    (re.compile(r"\b(list|show|get|what|display).*(network|site|device|ap|access\s+point|switch|appliance|camera|sensor|client|ssid)s?\b", re.IGNORECASE), "discovery"),
+    (re.compile(r"\b(what|which)\b.*(track(ing)?|monitor(ing)?|watch(ing)?)\b.*\b(thousandeyes|te)\b", re.IGNORECASE), "discovery"),
+    (re.compile(r"\b(list|show|get|what|display).*(network|site|device|ap|access\s+point|switch|appliance|camera|sensor|client|ssid|application|app|test)s?\b(?!.*\b(result|metric|perform|latency|loss|avail))", re.IGNORECASE), "discovery"),
     (re.compile(r"\b(inventory|health|overview|status|organization)\b", re.IGNORECASE), "discovery"),
     # Troubleshooting agent — problem indicators (checked after explicit troubleshooting keywords)
     (re.compile(r"\b(slow|issue|problem|not\s+working|can'?t|won'?t|fail|error|down|offline|disconnect|latency|packet.?loss|degraded|poor)\b", re.IGNORECASE), "troubleshooting"),

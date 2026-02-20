@@ -11,9 +11,10 @@ Available agents:
 - remediation: Execute configuration changes — update switch ports, modify SSIDs, change firewall rules, fix compliance issues. Requires user confirmation before any write operation
 
 Important routing distinctions:
-- "list my tests" or "what tests are configured" → discovery (inventory)
+- "list my tests" or "what tests are configured" or "what applications are we tracking/monitoring" → discovery (inventory)
 - "run a test" or "run an HTTP test" → testing (instant tests)
 - "show me test results" or "how is my HTTP test performing" or "what's the latency" → performance (metrics/results)
+- "what are we monitoring with ThousandEyes" or "which apps do we track" → discovery (listing what exists, not metrics)
 - "my network is slow" or "users are having issues" → troubleshooting (problem diagnosis)
 
 For simple queries, respond with EXACTLY one agent name.

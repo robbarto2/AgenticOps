@@ -95,6 +95,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       let defaultWidth = 650
       let defaultHeight = 380
 
+      // Chart cards need more height for the chart area
+      if (card.type === 'line_chart' || card.type === 'bar_chart') {
+        defaultHeight = 450
+      }
       // Access point cards need more height for channel utilization display
       if (card.type === 'access_point_detail') {
         defaultHeight = 480

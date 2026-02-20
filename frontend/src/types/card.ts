@@ -242,6 +242,11 @@ export interface TestDetailCard extends CardBase {
     agents: TestAgent[]
     alertRules?: TestAlertRule[]
     description?: string
+    avgLatency?: number | null
+    packetLoss?: number | null
+    availability?: number | null
+    perfAlert?: boolean
+    agentCount?: number
     metrics?: {
       availability?: number
       avgResponseTime?: number

@@ -26,14 +26,17 @@ def _route_after_specialist(state: AgentState) -> str:
     if step < len(plan):
         return "plan_router"
 
+    # Skip canvas if specialist already produced cards directly
+    if state.get("cards") and len(plan) <= 1:
+        return "__end__"
+
     # If cards were explicitly requested (e.g. performance queries, user asked
-    # for visuals), always route to canvas so chart/graph cards are generated
+    # for visuals), route to canvas so chart/graph cards are generated
     if state.get("generate_cards", False):
         return "canvas"
 
-    # Plan complete — skip canvas if specialist already produced cards or tables
-    # (only for single-agent plans; multi-agent plans may need canvas for other agents' results)
-    if (state.get("cards") or state.get("table_data")) and len(plan) <= 1:
+    # Skip canvas if specialist produced interactive tables
+    if state.get("table_data") and len(plan) <= 1:
         return "__end__"
 
     return "__end__"

@@ -1108,7 +1108,7 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
             metrics = test_metrics_map.get(str(test_id), {})
             avg_latency = metrics.get("avgLatency")
             packet_loss = metrics.get("packetLoss")
-            has_alerts = metrics.get("hasAlerts", False)
+            availability = metrics.get("availability")
 
             # Format metrics for display
             latency_str = f"{avg_latency:.1f}ms" if avg_latency is not None else "—"
@@ -1117,11 +1117,17 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
             # Determine status
             status = "Enabled" if enabled else "Disabled"
 
-            # Set status_type based on alerts or disabled state
-            if has_alerts:
-                status_type = "error"  # Red row for tests with alerts
+            # Set status_type based on performance thresholds
+            perf_alert = False
+            if avg_latency is not None and avg_latency > 150:
+                perf_alert = True
+            if packet_loss is not None and packet_loss > 1:
+                perf_alert = True
+
+            if perf_alert:
+                status_type = "error"  # Red row for poor performance
             elif not enabled:
-                status_type = "warning"  # Yellow row for disabled tests
+                status_type = "warning"  # Amber row for disabled tests
             else:
                 status_type = "normal"
 
@@ -1153,6 +1159,10 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
                     "enabled": enabled,
                     "interval": interval,
                     "agentCount": agent_count,
+                    "avgLatency": round(avg_latency, 1) if avg_latency is not None else None,
+                    "packetLoss": round(packet_loss, 2) if packet_loss is not None else None,
+                    "availability": round(availability, 2) if availability is not None else None,
+                    "perfAlert": perf_alert,
                 },
             })
 

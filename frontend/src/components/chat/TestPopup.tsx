@@ -12,6 +12,10 @@ interface TestMetadata {
   enabled: boolean
   interval: number
   agentCount: number
+  avgLatency: number | null
+  packetLoss: number | null
+  availability: number | null
+  perfAlert: boolean
 }
 
 interface Props {
@@ -92,6 +96,11 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
         agents: testDetails?.agents || [],
         alertRules: testDetails?.alertRules || [],
         description: testDetails?.description || '',
+        avgLatency: metadata.avgLatency,
+        packetLoss: metadata.packetLoss,
+        availability: metadata.availability,
+        perfAlert: metadata.perfAlert,
+        agentCount: metadata.agentCount,
         metrics: testDetails?.metrics,
       },
     }
@@ -162,11 +171,76 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
           </div>
         )}
 
-        {/* Metadata */}
+        {/* Performance Metrics — shown first since this is what matters most */}
+        {(metadata.avgLatency !== null || metadata.packetLoss !== null || metadata.availability !== null) && (
+          <div className="px-3 py-2">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Performance (24h avg)</span>
+              {metadata.perfAlert && (
+                <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-red-500/10 text-red-400 border border-red-500/20">
+                  Degraded
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
+                <p className={`text-lg font-semibold ${
+                  metadata.avgLatency === null ? 'text-gray-400' :
+                  metadata.avgLatency <= 150 ? 'text-emerald-400' :
+                  metadata.avgLatency <= 500 ? 'text-amber-400' : 'text-red-400'
+                }`}>{metadata.avgLatency !== null ? `${metadata.avgLatency.toFixed(0)}ms` : '—'}</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">Latency</p>
+                {metadata.avgLatency !== null && (
+                  <p className="text-[9px] text-gray-500 mt-0.5">
+                    {metadata.avgLatency <= 150 ? 'Good (<150ms)' : metadata.avgLatency <= 500 ? 'Elevated' : 'High (>500ms)'}
+                  </p>
+                )}
+              </div>
+              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
+                <p className={`text-lg font-semibold ${
+                  metadata.packetLoss === null ? 'text-gray-400' :
+                  metadata.packetLoss <= 1 ? 'text-emerald-400' :
+                  metadata.packetLoss <= 5 ? 'text-amber-400' : 'text-red-400'
+                }`}>{metadata.packetLoss !== null ? `${metadata.packetLoss.toFixed(2)}%` : '—'}</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">Packet Loss</p>
+                {metadata.packetLoss !== null && (
+                  <p className="text-[9px] text-gray-500 mt-0.5">
+                    {metadata.packetLoss <= 1 ? 'Good (<1%)' : metadata.packetLoss <= 5 ? 'Elevated' : 'High (>5%)'}
+                  </p>
+                )}
+              </div>
+              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
+                <p className={`text-lg font-semibold ${
+                  metadata.availability === null ? 'text-gray-400' :
+                  metadata.availability >= 99 ? 'text-emerald-400' :
+                  metadata.availability >= 95 ? 'text-amber-400' : 'text-red-400'
+                }`}>{metadata.availability !== null ? `${metadata.availability.toFixed(1)}%` : '—'}</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">Availability</p>
+                {metadata.availability !== null && (
+                  <p className="text-[9px] text-gray-500 mt-0.5">
+                    {metadata.availability >= 99 ? 'Good (>99%)' : metadata.availability >= 95 ? 'Degraded' : 'Poor (<95%)'}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(metadata.avgLatency !== null || metadata.packetLoss !== null || metadata.availability !== null) && (
+          <div className="border-t border-gray-200 dark:border-gray-800" />
+        )}
+
+        {/* Test Configuration */}
         <div className="px-3 py-2 space-y-2">
-          <div>
-            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Test Type</span>
-            <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.testType}</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            <div>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Test Type</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.testType}</p>
+            </div>
+            <div>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Interval</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">Every {formatInterval(metadata.interval)}</p>
+            </div>
           </div>
 
           <div>
@@ -174,14 +248,15 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
             <p className="text-sm text-gray-700 dark:text-gray-300 font-mono break-all">{metadata.target}</p>
           </div>
 
-          <div>
-            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Interval</span>
-            <p className="text-sm text-gray-900 dark:text-gray-100">Every {formatInterval(metadata.interval)}</p>
-          </div>
-
-          <div>
-            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Agents</span>
-            <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.agentCount} location{metadata.agentCount !== 1 ? 's' : ''}</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            <div>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Agents</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{metadata.agentCount} location{metadata.agentCount !== 1 ? 's' : ''}</p>
+            </div>
+            <div>
+              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Test ID</span>
+              <p className="text-sm text-gray-700 dark:text-gray-300 font-mono">{metadata.testId}</p>
+            </div>
           </div>
 
           {testDetails?.description && (
@@ -199,51 +274,7 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
               </p>
             </div>
           )}
-
-          <div>
-            <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Test ID</span>
-            <p className="text-sm text-gray-700 dark:text-gray-300 font-mono">{metadata.testId}</p>
-          </div>
         </div>
-
-        {/* Performance metrics tiles */}
-        {testDetails?.metrics && (
-          <>
-            <div className="border-t border-gray-200 dark:border-gray-800" />
-            <div className="px-3 py-2">
-              <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Performance (24h)</span>
-              <div className="grid grid-cols-2 gap-2 mt-1.5">
-                {testDetails.metrics.availability !== undefined && (
-                  <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
-                    <p className={`text-lg font-semibold ${
-                      testDetails.metrics.availability >= 99 ? 'text-emerald-400' :
-                      testDetails.metrics.availability >= 95 ? 'text-amber-400' : 'text-red-400'
-                    }`}>{testDetails.metrics.availability.toFixed(1)}%</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Availability</p>
-                  </div>
-                )}
-                {testDetails.metrics.avgResponseTime !== undefined && (
-                  <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
-                    <p className={`text-lg font-semibold ${
-                      testDetails.metrics.avgResponseTime < 200 ? 'text-emerald-400' :
-                      testDetails.metrics.avgResponseTime < 500 ? 'text-amber-400' : 'text-red-400'
-                    }`}>{testDetails.metrics.avgResponseTime.toFixed(0)}ms</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Avg Response</p>
-                  </div>
-                )}
-                {testDetails.metrics.maxLoss !== undefined && (
-                  <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
-                    <p className={`text-lg font-semibold ${
-                      testDetails.metrics.maxLoss < 0.1 ? 'text-emerald-400' :
-                      testDetails.metrics.maxLoss < 1   ? 'text-amber-400' : 'text-red-400'
-                    }`}>{testDetails.metrics.maxLoss.toFixed(2)}%</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Max Loss</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
-        )}
 
         {/* Divider */}
         <div className="border-t border-gray-200 dark:border-gray-800" />

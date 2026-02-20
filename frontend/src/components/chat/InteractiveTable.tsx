@@ -77,20 +77,12 @@ export function InteractiveTable({ tableData }: Props) {
         </svg>
         <span className="text-[11px] text-gray-500 dark:text-gray-400">Click a row for details</span>
 
-        {(hasErrorRows || hasWarningRows) && (
+        {hasErrorRows && (
           <div className="flex items-center gap-3 ml-auto">
-            {hasErrorRows && (
-              <span className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-                <span className="w-3 h-[3px] rounded-full bg-red-500 dark:bg-red-400/80" />
-                Offline
-              </span>
-            )}
-            {hasWarningRows && (
-              <span className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-                <span className="w-3 h-[3px] rounded-full bg-amber-500 dark:bg-amber-400/80" />
-                Alerting
-              </span>
-            )}
+            <span className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+              <span className="w-3 h-[3px] rounded-full bg-red-500 dark:bg-red-400/80" />
+              {tableData.entity_type === 'test' ? 'Poor Performance' : 'Offline'}
+            </span>
           </div>
         )}
       </div>
@@ -125,24 +117,17 @@ export function InteractiveTable({ tableData }: Props) {
         <tbody>
           {tableData.rows.map((row, idx) => {
             const statusType = row.status_type || 'normal'
+            const isError = statusType === 'error'
             const getRowBackground = () => {
+              const errorBg = isError ? 'bg-red-50 dark:bg-red-950/60 border-l-[3px] border-l-red-500 dark:border-l-red-400' : ''
+
               if (popupRowIdx === idx) {
-                return 'bg-blue-500/10 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]'
+                return `bg-blue-500/10 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)] ${isError ? 'border-l-[3px] border-l-red-500 dark:border-l-red-400' : ''}`
               }
               if (hoveredRowIdx === idx) {
-                if (statusType === 'error') {
-                  return 'bg-red-50 dark:bg-[#1f1520] border-l-[3px] border-l-red-500 dark:border-l-red-400'
-                } else if (statusType === 'warning') {
-                  return 'bg-amber-50 dark:bg-[#1f1a14] border-l-[3px] border-l-amber-500 dark:border-l-amber-400'
-                }
-                return 'bg-blue-500/5 shadow-[inset_0_0_12px_rgba(59,130,246,0.08)]'
+                return `bg-gray-100/80 dark:bg-gray-700/30 ${isError ? 'border-l-[3px] border-l-red-500 dark:border-l-red-400' : ''}`
               }
-              if (statusType === 'error') {
-                return 'bg-red-50 dark:bg-[#191318] border-l-[3px] border-l-red-500 dark:border-l-red-400/80'
-              } else if (statusType === 'warning') {
-                return 'bg-amber-50 dark:bg-[#191612] border-l-[3px] border-l-amber-500 dark:border-l-amber-400/80'
-              }
-              return ''
+              return errorBg
             }
 
             return (

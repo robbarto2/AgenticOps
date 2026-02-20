@@ -134,7 +134,7 @@ function CardNodeInner({ data }: NodeProps) {
           onClose={() => removeCard(card.id)}
         />
         {!card.collapsed && (
-          <div className="p-3 card-content nodrag nopan nowheel select-text cursor-auto flex-1 overflow-auto min-h-0">{renderContent()}</div>
+          <div className="p-3 card-content nodrag nopan nowheel select-text cursor-auto flex-1 overflow-auto min-h-0 flex flex-col">{renderContent()}</div>
         )}
 
         {/* Custom resize handle icon in bottom-right corner */}

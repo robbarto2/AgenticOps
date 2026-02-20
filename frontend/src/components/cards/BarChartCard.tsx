@@ -36,7 +36,7 @@ export function BarChartCard({ data }: Props) {
   })
 
   return (
-    <div className="h-48 w-full">
+    <div className="w-full flex-1 min-h-0" style={{ minHeight: 220 }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
