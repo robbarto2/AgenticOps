@@ -158,11 +158,18 @@ export const InteractiveTable = memo(function InteractiveTable({ tableData }: Pr
                 onMouseLeave={() => setHoveredRowIdx(null)}
                 className={`border-b border-gray-200 dark:border-[#1e2636] cursor-pointer transition-all duration-200 ${getRowBackground()}`}
               >
-                {row.cells.map((cell, i) => (
-                  <td key={i} className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
-                    {tableData.columns[i] === 'Status' ? <StatusBadge status={cell} /> : cell}
-                  </td>
-                ))}
+                {row.cells.map((cell, i) => {
+                  const col = tableData.columns[i]
+                  const isWanAlert = col === 'WAN' && cell && (cell.includes('failed') || cell.includes('down'))
+                  const wanClass = isWanAlert
+                    ? cell.includes('failed') ? 'text-red-500 font-semibold' : 'text-amber-500 font-medium'
+                    : ''
+                  return (
+                    <td key={i} className={`px-3 py-1.5 text-gray-700 dark:text-gray-300 ${wanClass}`}>
+                      {col === 'Status' ? <StatusBadge status={cell} /> : cell}
+                    </td>
+                  )
+                })}
               </tr>
             )
           })}

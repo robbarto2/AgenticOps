@@ -22,6 +22,7 @@ from api.models import (
     SkillInfo,
     SkillsResponse,
     SsidDetail,
+    WanUplinkAlert,
 )
 from mcp_client.manager import mcp_manager
 from skills.loader import list_skills
@@ -249,11 +250,55 @@ async def entity_stats(entity_type: str, entity_id: str) -> EntityStatsResponse:
             logger.warning("Failed to fetch SSIDs for %s", entity_id, exc_info=True)
         return -1
 
-    (device_count, location), (online_count, offline_count, alerting_count, problem_devices), client_count, ssid_count = await asyncio.gather(
+    async def _fetch_wan_alerts() -> list[WanUplinkAlert]:
+        """Fetch org uplink statuses and return failed/not-connected uplinks for this network."""
+        try:
+            result = await mcp_manager.call_tool(
+                "call_meraki_api",
+                {
+                    "section": "appliance",
+                    "method": "getOrganizationApplianceUplinkStatuses",
+                    "parameters": {},
+                },
+            )
+            if "error" not in result:
+                parsed = _parse_json(result.get("content", ""))
+                items = _unwrap_list(parsed)
+                if items is not None:
+                    alerts: list[WanUplinkAlert] = []
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        if item.get("networkId") != entity_id:
+                            continue
+                        serial = item.get("serial", "")
+                        device_name = serial  # fallback
+                        uplinks = item.get("uplinks", [])
+                        if not isinstance(uplinks, list):
+                            continue
+                        for ul in uplinks:
+                            if not isinstance(ul, dict):
+                                continue
+                            status = (ul.get("status") or "").lower()
+                            if status in ("failed", "not connected"):
+                                alerts.append(WanUplinkAlert(
+                                    deviceName=device_name,
+                                    serial=serial,
+                                    interface=ul.get("interface", ""),
+                                    status=ul.get("status", ""),
+                                ))
+                    return alerts
+            logger.warning("WAN uplink error for %s: %s", entity_id, result.get("error", "parse failed"))
+        except Exception:
+            logger.warning("Failed to fetch WAN uplinks for %s", entity_id, exc_info=True)
+        return []
+
+    (device_count, location), (online_count, offline_count, alerting_count, problem_devices), client_count, ssid_count, wan_alerts = await asyncio.gather(
         _fetch_devices(),
         _fetch_device_statuses(),
         _count_clients(),
         _count_ssids(),
+        _fetch_wan_alerts(),
     )
 
     return EntityStatsResponse(
@@ -265,6 +310,7 @@ async def entity_stats(entity_type: str, entity_id: str) -> EntityStatsResponse:
         alertingCount=alerting_count,
         location=location,
         problemDevices=problem_devices,
+        wanAlerts=wan_alerts,
     )
 
 

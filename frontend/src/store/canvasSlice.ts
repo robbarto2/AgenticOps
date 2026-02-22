@@ -265,43 +265,68 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const removedNodeIds = new Set<string>()
     const stackNodes: Node[] = []
 
+    const updatedStackNodeIds = new Set<string>()
+
     for (const [category, cardIds] of Object.entries(groups)) {
-      if (cardIds.length < 2) continue
-
       const stackId = `stack-${category}`
-      const firstNode = cardNodes.find((n) => n.id === cardIds[0])
-      const position = firstNode ? { ...firstNode.position } : { x: 50, y: 50 }
+      const existingStack = state.stacks[stackId]
 
-      // Save pre-stack positions
-      for (const cid of cardIds) {
-        const node = cardNodes.find((n) => n.id === cid)
-        if (node) preStackPositions[cid] = { ...node.position }
-        removedNodeIds.add(cid)
+      if (existingStack) {
+        // Merge unstacked cards into the existing stack
+        if (cardIds.length < 1) continue
+
+        for (const cid of cardIds) {
+          const node = cardNodes.find((n) => n.id === cid)
+          if (node) preStackPositions[cid] = { ...node.position }
+          removedNodeIds.add(cid)
+        }
+
+        const mergedCardIds = [...existingStack.cardIds, ...cardIds]
+        newStacks[stackId] = {
+          ...existingStack,
+          cardIds: mergedCardIds,
+          label: getStackLabel(category, mergedCardIds),
+        }
+        updatedStackNodeIds.add(stackId)
+      } else {
+        // Create a new stack (requires 2+ cards)
+        if (cardIds.length < 2) continue
+
+        const firstNode = cardNodes.find((n) => n.id === cardIds[0])
+        const position = firstNode ? { ...firstNode.position } : { x: 50, y: 50 }
+
+        for (const cid of cardIds) {
+          const node = cardNodes.find((n) => n.id === cid)
+          if (node) preStackPositions[cid] = { ...node.position }
+          removedNodeIds.add(cid)
+        }
+
+        newStacks[stackId] = {
+          id: stackId,
+          category: category as CardCategory,
+          label: getStackLabel(category, cardIds),
+          cardIds,
+          expanded: false,
+          position,
+          color: getCategoryColor(category as CardCategory),
+        }
+
+        stackNodes.push({
+          id: stackId,
+          type: 'stackNode',
+          position,
+          data: newStacks[stackId],
+          style: { width: 500 },
+        })
       }
-
-      newStacks[stackId] = {
-        id: stackId,
-        category: category as CardCategory,
-        label: getStackLabel(category, cardIds),
-        cardIds,
-        expanded: false,
-        position,
-        color: getCategoryColor(category as CardCategory),
-      }
-
-      stackNodes.push({
-        id: stackId,
-        type: 'stackNode',
-        position,
-        data: newStacks[stackId],
-        style: { width: 500 },
-      })
     }
 
-    // Keep non-stacked card nodes + add stack nodes
-    // When filtering by category, keep existing stack nodes intact
+    // Keep non-stacked card nodes + add new stack nodes
+    // Update existing stack nodes with merged data
     const remainingNodes = filterCategory
-      ? state.nodes.filter((n) => !removedNodeIds.has(n.id))
+      ? state.nodes.filter((n) => !removedNodeIds.has(n.id)).map((n) =>
+          updatedStackNodeIds.has(n.id) ? { ...n, data: newStacks[n.id] } : n
+        )
       : state.nodes.filter((n) => !removedNodeIds.has(n.id) && n.type !== 'stackNode')
 
     set({
@@ -469,132 +494,139 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const state = get()
     const cardMap = new Map(state.cards.map((c) => [c.id, c]))
 
-    // Separate stack nodes from card nodes
-    const stackNodes = state.nodes.filter((n) => n.type === 'stackNode')
-    const cardNodes = state.nodes.filter((n) => n.type === 'cardNode')
-
     const GAP_X = 40
-    const GAP_Y = 40
-    const GROUP_GAP_Y = 80 // Larger gap between category groups
+    const GAP_Y = 20       // Tight gap within a category group
+    const GROUP_GAP_Y = 60 // Larger gap between different categories
     const START_X = 40
     const START_Y = 40
 
-    // Display order for category groups (most important first)
     const CATEGORY_ORDER: CardCategory[] = [
       'org', 'network', 'topology', 'switch', 'access_point', 'device',
       'test', 'alert', 'chart', 'table', 'report',
     ]
 
+    // Build a map: category → { stackNodes, collapsedNodes, expandedNodes }
+    const categoryGroups = new Map<string, { stackNodes: Node[]; collapsedNodes: Node[]; expandedNodes: Node[] }>()
+
+    for (const node of state.nodes) {
+      let category: string
+
+      if (node.type === 'stackNode') {
+        category = (node.data as CardStack).category ?? 'other'
+      } else if (node.type === 'cardNode') {
+        const card = cardMap.get(node.id)
+        if (!card) continue
+        category = getCardCategory(card)
+      } else {
+        continue
+      }
+
+      if (!categoryGroups.has(category)) {
+        categoryGroups.set(category, { stackNodes: [], collapsedNodes: [], expandedNodes: [] })
+      }
+      const group = categoryGroups.get(category)!
+
+      if (node.type === 'stackNode') {
+        group.stackNodes.push(node)
+      } else {
+        const card = cardMap.get(node.id)
+        if (card?.collapsed) {
+          group.collapsedNodes.push(node)
+        } else {
+          group.expandedNodes.push(node)
+        }
+      }
+    }
+
+    // Sort categories by CATEGORY_ORDER
+    const sortedCategories = [...categoryGroups.keys()].sort((a, b) => {
+      const ai = CATEGORY_ORDER.indexOf(a as CardCategory)
+      const bi = CATEGORY_ORDER.indexOf(b as CardCategory)
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+    })
+
     let currentY = START_Y
     const updatedPositions: Record<string, { x: number; y: number }> = {}
 
-    // --- Lay out stacks first in their own row(s) ---
-    if (stackNodes.length > 0) {
-      // Sort stacks by category order for consistency
-      const sortedStacks = [...stackNodes].sort((a, b) => {
-        const aCat = (a.data as CardStack).category ?? 'other'
-        const bCat = (b.data as CardStack).category ?? 'other'
-        const ai = CATEGORY_ORDER.indexOf(aCat as CardCategory)
-        const bi = CATEGORY_ORDER.indexOf(bCat as CardCategory)
-        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
-      })
-
-      const STACK_COLS = sortedStacks.length <= 4 ? sortedStacks.length : 4
-      const stackRows: (typeof sortedStacks)[] = []
-      for (let i = 0; i < sortedStacks.length; i++) {
-        const row = Math.floor(i / STACK_COLS)
-        if (!stackRows[row]) stackRows[row] = []
-        stackRows[row].push(sortedStacks[i])
-      }
-
-      for (const rowNodes of stackRows) {
-        const maxH = Math.max(...rowNodes.map((n) => n.height ?? 220))
-        let x = START_X
-        for (const node of rowNodes) {
-          const w = node.width ?? (node.style?.width as number) ?? 500
-          updatedPositions[node.id] = { x, y: currentY }
-          x += w + GAP_X
-        }
-        currentY += maxH + GAP_Y
-      }
-
-      // Add group gap after stacks if there are card nodes too
-      if (cardNodes.length > 0) {
-        currentY += GROUP_GAP_Y - GAP_Y
-      }
-    }
-
-    // --- Split card nodes into collapsed (minimized) vs expanded ---
-    const collapsedNodes = cardNodes.filter((n) => {
-      const card = cardMap.get(n.id)
-      return card?.collapsed
-    })
-    const expandedNodes = cardNodes.filter((n) => {
-      const card = cardMap.get(n.id)
-      return !card?.collapsed
-    })
-
-    // Helper: lay out a set of nodes grouped by category
-    const layoutGroup = (nodes: Node[], defaultH: number, defaultW: number) => {
+    // Helper: lay out nodes in a row, wrapping into multiple rows if needed
+    const layoutRow = (nodes: Node[], defaultW: number, defaultH: number, maxCols: number) => {
       if (nodes.length === 0) return
+      const cols = Math.min(nodes.length, maxCols)
+      for (let i = 0; i < nodes.length; i++) {
+        const col = i % cols
+        const row = Math.floor(i / cols)
+        const w = nodes[i].width ?? (nodes[i].style?.width as number) ?? defaultW
+        const h = nodes[i].height ?? (nodes[i].style?.height as number) ?? defaultH
 
-      const groups = new Map<string, Node[]>()
-      for (const node of nodes) {
-        const card = cardMap.get(node.id)
-        const category = card ? getCardCategory(card) : 'other'
-        if (!groups.has(category)) groups.set(category, [])
-        groups.get(category)!.push(node)
+        // Calculate x based on column position
+        let x = START_X
+        for (let c = 0; c < col; c++) {
+          const prevW = nodes[Math.floor(i / cols) * cols + c]?.width
+            ?? (nodes[Math.floor(i / cols) * cols + c]?.style?.width as number)
+            ?? defaultW
+          x += prevW + GAP_X
+        }
+
+        // Calculate y offset for this row
+        const rowStart = row * cols
+        const rowEnd = Math.min(rowStart + cols, nodes.length)
+        const rowMaxH = Math.max(
+          ...nodes.slice(rowStart, rowEnd).map(n => n.height ?? (n.style?.height as number) ?? defaultH)
+        )
+
+        let rowY = currentY
+        for (let r = 0; r < row; r++) {
+          const rStart = r * cols
+          const rEnd = Math.min(rStart + cols, nodes.length)
+          rowY += Math.max(
+            ...nodes.slice(rStart, rEnd).map(n => n.height ?? (n.style?.height as number) ?? defaultH)
+          ) + GAP_Y
+        }
+
+        updatedPositions[nodes[i].id] = { x, y: rowY }
       }
 
-      const sortedCats = [...groups.keys()].sort((a, b) => {
-        const ai = CATEGORY_ORDER.indexOf(a as CardCategory)
-        const bi = CATEGORY_ORDER.indexOf(b as CardCategory)
-        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
-      })
-
-      for (let gi = 0; gi < sortedCats.length; gi++) {
-        const catNodes = groups.get(sortedCats[gi])!
-        const COLS = catNodes.length <= 2 ? catNodes.length : catNodes.length <= 6 ? 3 : 4
-        const rows: (typeof catNodes)[] = []
-        for (let i = 0; i < catNodes.length; i++) {
-          const row = Math.floor(i / COLS)
-          if (!rows[row]) rows[row] = []
-          rows[row].push(catNodes[i])
-        }
-
-        for (const rowNodes of rows) {
-          const maxH = Math.max(...rowNodes.map((n) => n.height ?? (n.style?.height as number) ?? defaultH))
-          let x = START_X
-          for (const node of rowNodes) {
-            const w = node.width ?? (node.style?.width as number) ?? defaultW
-            updatedPositions[node.id] = { x, y: currentY }
-            x += w + GAP_X
-          }
-          currentY += maxH + GAP_Y
-        }
-
-        if (gi < sortedCats.length - 1) {
-          currentY += GROUP_GAP_Y - GAP_Y
-        }
+      // Advance currentY past all rows
+      const totalRows = Math.ceil(nodes.length / cols)
+      for (let r = 0; r < totalRows; r++) {
+        const rStart = r * cols
+        const rEnd = Math.min(rStart + cols, nodes.length)
+        const rowH = Math.max(
+          ...nodes.slice(rStart, rEnd).map(n => n.height ?? (n.style?.height as number) ?? defaultH)
+        )
+        currentY += rowH + GAP_Y
       }
     }
 
-    // Tier 2: Collapsed / minimized cards
-    if (collapsedNodes.length > 0) {
-      layoutGroup(collapsedNodes, 90, 250)
-      if (expandedNodes.length > 0) {
+    let categoryIndex = 0
+    for (const category of sortedCategories) {
+      const group = categoryGroups.get(category)!
+      const hasItems = group.stackNodes.length > 0 || group.collapsedNodes.length > 0 || group.expandedNodes.length > 0
+      if (!hasItems) continue
+
+      // Combine stack nodes and collapsed cards into a single compact row
+      // since they're both small (stack ~500px, collapsed ~250px)
+      const compactNodes = [...group.stackNodes, ...group.collapsedNodes]
+      if (compactNodes.length > 0) {
+        const compactCols = Math.min(compactNodes.length, 4)
+        layoutRow(compactNodes, 500, 120, compactCols)
+      }
+
+      // Expanded cards in a grid (up to 3 columns)
+      const expandedCols = group.expandedNodes.length <= 2 ? group.expandedNodes.length : group.expandedNodes.length <= 6 ? 3 : 4
+      layoutRow(group.expandedNodes, 650, 380, expandedCols)
+
+      // Add gap between categories (but not after the last one)
+      categoryIndex++
+      if (categoryIndex < sortedCategories.length) {
         currentY += GROUP_GAP_Y - GAP_Y
       }
     }
-
-    // Tier 3: Expanded cards
-    layoutGroup(expandedNodes, 380, 650)
 
     set({
       nodes: state.nodes.map((n) =>
         updatedPositions[n.id] ? { ...n, position: updatedPositions[n.id] } : n
       ),
-      // Keep stacks in sync so double-click expand origins are correct
       stacks: Object.fromEntries(
         Object.entries(state.stacks).map(([id, stack]) => [
           id,

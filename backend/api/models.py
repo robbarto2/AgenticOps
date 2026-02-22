@@ -41,6 +41,15 @@ class ProblemDevice(BaseModel):
     status: str
 
 
+class WanUplinkAlert(BaseModel):
+    """A WAN uplink that is failed or not connected."""
+
+    deviceName: str
+    serial: str
+    interface: str
+    status: str
+
+
 class EntityStatsResponse(BaseModel):
     """Live stats for a network entity."""
 
@@ -52,6 +61,7 @@ class EntityStatsResponse(BaseModel):
     alertingCount: int = -1
     location: str | None = None
     problemDevices: list[ProblemDevice] = []
+    wanAlerts: list[WanUplinkAlert] = []
 
 
 class DeviceDetail(BaseModel):

@@ -28,6 +28,7 @@ function CanvasToolbar({ onClearRequest }: { onClearRequest: () => void }) {
   const cards = useCanvasStore((s) => s.cards)
   const nodes = useCanvasStore((s) => s.nodes)
   const stackByType = useCanvasStore((s) => s.stackByType)
+  const toggleStack = useCanvasStore((s) => s.toggleStack)
   const unstackAll = useCanvasStore((s) => s.unstackAll)
   const autoLayout = useCanvasStore((s) => s.autoLayout)
   const hasCards = cards.length > 0
@@ -62,10 +63,15 @@ function CanvasToolbar({ onClearRequest }: { onClearRequest: () => void }) {
     const cat = getCardCategory(card)
     categoryCounts[cat] = (categoryCounts[cat] || 0) + 1
   }
-  // Only show categories with 2+ unstacked cards (can be stacked)
+  // Show categories with 2+ unstacked cards, or 1+ if a stack already exists (merge)
   const stackableCategories = Object.entries(categoryCounts)
-    .filter(([, count]) => count >= 2)
+    .filter(([cat, count]) => count >= 2 || (count >= 1 && stacks[`stack-${cat}`]))
     .sort(([a], [b]) => a.localeCompare(b))
+
+  // Build list of existing stacks for per-stack unstack entries
+  const existingStacks = Object.values(stacks).sort((a, b) =>
+    a.category.localeCompare(b.category)
+  )
 
   if (!hasCards) return null
 
@@ -137,9 +143,24 @@ function CanvasToolbar({ onClearRequest }: { onClearRequest: () => void }) {
                 </div>
               )}
 
-              {/* Unstack All option */}
+              {/* Per-stack unstack options */}
               {hasStacks && (
                 <>
+                  <div className="border-t border-gray-200 dark:border-gray-700" />
+                  {existingStacks.map((stack) => (
+                    <button
+                      key={stack.id}
+                      onClick={() => { toggleStack(stack.id); setShowStackMenu(false) }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+                    >
+                      <span
+                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: stack.color }}
+                      />
+                      <span className="flex-1 text-left">Unstack {getCategoryLabel(stack.category)}</span>
+                      <span className="text-gray-400 dark:text-gray-500">{stack.cardIds.length}</span>
+                    </button>
+                  ))}
                   <div className="border-t border-gray-200 dark:border-gray-700" />
                   <button
                     onClick={() => { unstackAll(); setShowStackMenu(false) }}

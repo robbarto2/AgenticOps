@@ -17,7 +17,7 @@ from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, nee
 from agents.table_extractor import (
     extract_network_table, extract_device_table, extract_test_table, extract_client_table,
     extract_uplink_table, _extract_network_device_counts, _detect_network_health_filter,
-    _parse_result,
+    _parse_result, ensure_agent_list,
 )
 from agents.tools import build_langchain_tools
 from config import settings
@@ -172,6 +172,40 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
 
             emit({"type": "tool_call", "tool": "getOrganizationDevicesStatuses", "source": "meraki", "status": "complete"})
 
+        # Ensure uplink statuses were fetched — needed for WAN alerts column
+        _uplink_tool_names = {"getorganizationapplianceuplinkstatuses"}
+        has_uplink_data = any(
+            r.get("tool", "").lower().rstrip() in _uplink_tool_names
+            or (r.get("tool") == "call_meraki_api" and r.get("args", {}).get("method", "").lower() in _uplink_tool_names)
+            for r in tool_results
+        )
+        if not has_uplink_data and mcp_manager.meraki_connected:
+            emit({"type": "tool_call", "tool": "getOrganizationApplianceUplinkStatuses", "source": "meraki", "status": "running"})
+            try:
+                mcp_result = await asyncio.wait_for(
+                    mcp_manager.call_tool("call_meraki_api", {
+                        "section": "appliance",
+                        "method": "getOrganizationApplianceUplinkStatuses",
+                        "parameters": {},
+                    }),
+                    timeout=20,
+                )
+                if "error" not in mcp_result:
+                    content = mcp_result.get("content", "")
+                    logger.info("Discovery node: uplink statuses fetch OK for network table (%d chars)", len(content))
+                    tool_results.append({
+                        "tool": "call_meraki_api",
+                        "args": {"method": "getOrganizationApplianceUplinkStatuses"},
+                        "result": content,
+                    })
+                else:
+                    logger.warning("Discovery node: uplink statuses error: %s", mcp_result.get("error"))
+            except asyncio.TimeoutError:
+                logger.warning("Discovery node: uplink statuses timed out")
+            except Exception as e:
+                logger.warning("Discovery node: uplink statuses failed: %s", e)
+            emit({"type": "tool_call", "tool": "getOrganizationApplianceUplinkStatuses", "source": "meraki", "status": "complete"})
+
         table_data = extract_network_table(tool_results, user_query=query)
         logger.info("Discovery node: extracted %d network table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
@@ -314,6 +348,9 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
             emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "complete"})
         elif has_metrics:
             logger.info("Discovery node: skipping programmatic metrics fetch — LLM already called metrics tools")
+
+        # Fetch agent details so we can show agent names/locations in test tables
+        await ensure_agent_list(tool_results)
 
         # Detect if user wants only active/enabled tests
         q_lower = query.lower()

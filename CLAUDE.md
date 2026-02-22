@@ -38,7 +38,8 @@ AgenticOps/
 │   │   └── *.md                  # Individual skill definitions
 │   ├── api/
 │   │   ├── websocket.py          # /ws/chat WebSocket endpoint
-│   │   ├── rest.py               # /api/health, /api/skills
+│   │   ├── rest.py               # /api/health, /api/skills, /api/entity-stats
+│   │   ├── devices.py            # /api/device/{serial}/*, /api/test/{test_id}
 │   │   └── models.py             # Pydantic request/response models
 │   └── state/
 │       └── session.py            # In-memory session store
@@ -48,9 +49,9 @@ AgenticOps/
         ├── App.tsx               # Root component
         ├── components/
         │   ├── layout/           # AppLayout (split pane), TopBar
-        │   ├── chat/             # ChatPanel, ChatMessage, ChatInput, AgentIndicator, ConfirmationModal, MarkdownRowPopup
+        │   ├── chat/             # ChatPanel, ChatMessage, ChatInput, AgentIndicator, ConfirmationModal, MarkdownRowPopup, InteractiveTable, entity popups (DevicePopup, TestPopup, ClientPopup, UplinkPopup)
         │   ├── canvas/           # CanvasPanel (ReactFlow wrapper)
-        │   └── cards/            # CardNode + 6 card type components
+        │   └── cards/            # CardNode + card type components (DataTable, BarChart, LineChart, TopologyCard, TestDetailCard, NetworkDetailCard, OrgSummaryCard, etc.)
         ├── hooks/                # useWebSocket, useChat, useCanvas
         ├── store/                # Zustand: chatSlice, canvasSlice, connectionSlice
         ├── types/                # card.ts, chat.ts, websocket.ts
@@ -106,10 +107,17 @@ Orchestrator → Specialist₁ → Plan Router → Specialist₂ → Plan Router
 - **Orchestrator**: Classifies query, returns one or more of: `troubleshooting`, `compliance`, `security`, `discovery`, `topology`, `testing`, `remediation`
 - **Plan Router**: Pure-logic node (no LLM call) that dispatches to the next agent in the plan sequence
 - **Specialist agents**: Call MCP tools via agentic loop (up to 6-10 iterations), collect tool_results, increment plan_step
-- **Topology agent**: Builds network topology maps from LLDP/CDP data (10 iterations, 90-second timeout for multiple device queries)
+- **Topology agent**: Builds network topology maps from LLDP/CDP data (10 iterations, 90-second timeout). Parallelizes tool calls via `asyncio.gather`. Programmatically fetches WAN uplink statuses after the agent loop to show failed/active links on topology maps.
 - **Testing agent**: Runs on-demand ThousandEyes instant tests (HTTP, DNS, page load, etc.)
 - **Remediation agent**: Executes write operations with mandatory user confirmation before changes
 - **Canvas agent**: Transforms tool_results into card directives (JSON array of card objects, uses Haiku model)
+
+### Programmatic data enrichment
+
+Specialist agents programmatically fetch critical data after the LLM agent loop to avoid relying on the LLM calling the right tools:
+- **Discovery/Performance/Troubleshooting**: Fetch `list_cloud_enterprise_agents` for agent name/location enrichment in test tables (via `ensure_agent_list()` helper)
+- **Discovery**: Fetch `get_network_app_synthetics_metrics` (batch) for test performance data; fetch `getOrganizationApplianceUplinkStatuses` for WAN failure data in network tables
+- **Topology**: Fetch `getOrganizationApplianceUplinkStatuses` for per-interface WAN link status (failed/active/not connected) on topology maps; parallelize LLDP/CDP calls via `asyncio.gather`
 
 ## MCP connections
 
@@ -154,7 +162,7 @@ Tool access by agent:
 | `alert_summary` | `{ alerts: [{severity, title, description, timestamp?}] }` | Severity-colored list |
 | `text_report` | `{ content: string }` | Markdown rendered |
 | `network_health` | `{ metrics: [{label, value, status, icon?}] }` | Metric tiles |
-| `topology` | `{ nodes: [{id, label, deviceType, status, ip, model, serial}], links: [{source, target, linkType, label, speed}], networkName }` | Interactive SVG network diagram |
+| `topology` | `{ nodes: [{id, label, deviceType, status, ip, model, serial}], links: [{source, target, linkType, label, speed, status}], networkName }` | Interactive SVG network diagram (WAN links color-coded: red=failed, gray=not connected, purple=active) |
 
 Every card has: `id`, `type`, `title`, `source` ("meraki" or "thousandeyes"), and a `data` object matching its type.
 

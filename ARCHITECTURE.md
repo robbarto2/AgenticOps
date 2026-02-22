@@ -59,6 +59,9 @@ User ──WebSocket──> FastAPI ──────> │  Orchestrator Agent 
 7. Frontend renders text in the chat panel and cards on the canvas
    - Markdown tables in chat are clickable — clicking a row opens a `MarkdownRowPopup` showing the row data with Investigate/Troubleshoot actions
    - Interactive tables (structured `TableData`) use entity-specific popups (DevicePopup, ClientPopup, UplinkPopup, TestPopup)
+   - Popups fetch live data from REST API endpoints (e.g., `/api/test/{id}`, `/api/device/{serial}/switch-ports`, `/api/entity-stats/{type}/{id}`) for detailed information
+   - Network listing tables include WAN uplink failure status per network
+   - Test popups and cards show ThousandEyes agent names and locations (not just counts)
 
 ## MCP Client Integration
 
@@ -68,10 +71,10 @@ User ──WebSocket──> FastAPI ──────> │  Orchestrator Agent 
 - Provides ~804 Meraki API tools (auto-discovered from SDK)
 - Supports multi-org profiles, caching, response size management
 
-### ThousandEyes MCP (SSE transport)
-- Connects to a remote ThousandEyes MCP server via Server-Sent Events
+### ThousandEyes MCP (Streamable HTTP transport)
+- Connects to a remote ThousandEyes MCP server via Streamable HTTP
 - Authenticated with Bearer token
-- Provides test results, path visualization, alert data, instant tests
+- Provides test results, path visualization, alert data, instant tests, agent listing
 
 ## Specialist Agent Details
 
@@ -79,9 +82,18 @@ User ──WebSocket──> FastAPI ──────> │  Orchestrator Agent 
 The topology agent has specialized configuration due to the complexity of topology generation:
 - **Iterations**: 10 (vs 6 for other agents) to handle sequential LLDP/CDP calls per device
 - **Timeout**: 90 seconds (vs 60s) as LLDP/CDP queries can be slow
+- **Parallel Execution**: Tool calls within a single LLM response are parallelized via `asyncio.gather` for significantly faster topology generation
 - **Message Management**: No message trimming to preserve tool call/result pairing
-- **Tool Sequence**: Network lookup → Get devices → LLDP/CDP per device → Build topology
-- **Output**: Brief text summary + Canvas agent generates interactive topology card
+- **Tool Sequence**: Network lookup → Get devices → LLDP/CDP per device (parallel) → Build topology
+- **Programmatic WAN Uplink Fetch**: After the agent loop, automatically fetches `getOrganizationApplianceUplinkStatuses` to get per-interface WAN link status (active/failed/not connected)
+- **Output**: Brief text summary + Canvas agent generates interactive topology card with per-interface WAN links color-coded by status (red=failed, gray=not connected, purple=active)
+
+### Programmatic Data Enrichment
+After the LLM agent loop, specialist agents programmatically fetch data that the LLM may not reliably call on its own:
+- **Discovery/Performance/Troubleshooting agents** call `list_cloud_enterprise_agents` to get ThousandEyes agent names and locations for test table enrichment (via shared `ensure_agent_list()` helper in `table_extractor.py`)
+- **Discovery agent** batch-fetches `get_network_app_synthetics_metrics` for test performance data; fetches `getOrganizationApplianceUplinkStatuses` for WAN failure data in network listing tables
+- **Topology agent** fetches `getOrganizationApplianceUplinkStatuses` for WAN link status on topology maps
+- This pattern ensures critical data is always available regardless of LLM behavior
 
 ## WebSocket Protocol
 

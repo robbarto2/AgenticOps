@@ -158,44 +158,74 @@ async def get_device_status(serial: str) -> dict[str, Any]:
 @router.get("/api/test/{test_id}")
 async def get_test_details(test_id: str) -> dict[str, Any]:
     """Get detailed ThousandEyes test information."""
+    import asyncio
     try:
-        # Get test details
-        test_result = await mcp_manager.call_tool(
-            "get_network_app_synthetics_test",
-            {"testId": test_id}
-        )
-
-        if "error" in test_result:
-            logger.warning("Failed to fetch test %s: %s", test_id, test_result["error"])
-            return {"error": test_result["error"]}
-
-        # Try to get recent metrics
-        metrics_result = await mcp_manager.call_tool(
-            "get_network_app_synthetics_metrics",
-            {"testId": test_id, "window": "1d"}
-        )
-
         import json
 
-        # Parse test info
+        # Fetch test listing (includes agents) and metrics in parallel
+        # Note: get_network_app_synthetics_test requires a 'type' param we don't have,
+        # so we use the listing endpoint and filter by test ID instead.
+        tests_result, metrics_result = await asyncio.gather(
+            mcp_manager.call_tool("list_network_app_synthetics_tests", {}),
+            mcp_manager.call_tool("get_network_app_synthetics_metrics", {"testId": test_id, "window": "1d"}),
+            return_exceptions=True,
+        )
+
+        # Handle exceptions
+        if isinstance(tests_result, Exception):
+            logger.warning("Failed to fetch test listing: %s", tests_result)
+            tests_result = {}
+        if isinstance(metrics_result, Exception):
+            metrics_result = {}
+
+        # Find the specific test in the listing
         test_info = {}
         try:
-            test_data = json.loads(test_result.get("content", "{}"))
-            # API might return test in a wrapper or directly
-            if isinstance(test_data, dict):
-                test_info = test_data.get("test") or test_data
+            content = tests_result.get("content", "[]") if isinstance(tests_result, dict) else "[]"
+            tests_data = json.loads(content)
+            tests = []
+            if isinstance(tests_data, dict):
+                tests = tests_data.get("tests") or tests_data.get("data") or tests_data.get("items") or []
+            elif isinstance(tests_data, list):
+                tests = tests_data
+            for t in tests:
+                if isinstance(t, dict) and str(t.get("testId", t.get("testid", t.get("id", "")))) == test_id:
+                    test_info = t
+                    break
         except (json.JSONDecodeError, ValueError):
-            logger.warning("Failed to parse test details for %s", test_id)
-            pass
+            logger.warning("Failed to parse test listing")
+
+        if not test_info:
+            logger.warning("get_test_details: test %s not found in listing", test_id)
 
         # Parse metrics
         metrics_info = {}
         try:
-            metrics_data = json.loads(metrics_result.get("content", "{}"))
+            metrics_data = json.loads(metrics_result.get("content", "{}") if isinstance(metrics_result, dict) else "{}")
             if isinstance(metrics_data, dict):
                 metrics_info = metrics_data
         except (json.JSONDecodeError, ValueError):
             pass
+
+        # Parse agents from test data (ThousandEyes returns full agent objects)
+        raw_agents = test_info.get("agents") or test_info.get("agentIds") or []
+        agents = []
+        if isinstance(raw_agents, list):
+            for ag in raw_agents:
+                if isinstance(ag, dict):
+                    agents.append({
+                        "agentId": str(ag.get("agentId", ag.get("id", ""))),
+                        "agentName": ag.get("agentName") or ag.get("name") or "",
+                        "location": ag.get("location") or ag.get("countryId") or "",
+                    })
+                elif isinstance(ag, (int, str)):
+                    agents.append({
+                        "agentId": str(ag),
+                        "agentName": f"Agent {ag}",
+                        "location": "",
+                    })
+        logger.info("get_test_details: test %s found=%s agents=%d",
+                     test_id, bool(test_info), len(agents))
 
         # Build response
         response = {
@@ -205,7 +235,7 @@ async def get_test_details(test_id: str) -> dict[str, Any]:
             "target": test_info.get("url") or test_info.get("server") or test_info.get("domain") or test_info.get("target", ""),
             "enabled": test_info.get("enabled", True),
             "interval": test_info.get("interval", 0),
-            "agents": test_info.get("agents", []),
+            "agents": agents,
             "alertRules": test_info.get("alertRules", []),
             "description": test_info.get("description", ""),
         }

@@ -12,6 +12,7 @@ interface TestMetadata {
   enabled: boolean
   interval: number
   agentCount: number
+  agents?: { agentId: string; agentName: string; location?: string }[]
   avgLatency: number | null
   packetLoss: number | null
   availability: number | null
@@ -25,40 +26,29 @@ interface Props {
 }
 
 function PopupAgentLocations({ agents, agentCount }: { agents?: TestAgent[]; agentCount: number }) {
-  const [showTooltip, setShowTooltip] = useState(false)
   const hasAgentDetails = agents && agents.length > 0
 
   return (
-    <div className="relative">
-      <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Agents</span>
+    <div>
+      <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">
+        Agents ({agentCount})
+      </span>
       {hasAgentDetails ? (
-        <p
-          className="text-sm text-blue-500 dark:text-blue-400 cursor-pointer underline decoration-dotted underline-offset-2 hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
-        >
-          {agentCount} location{agentCount !== 1 ? 's' : ''}
-        </p>
+        <ul className="mt-0.5 space-y-0.5">
+          {agents.map((agent) => (
+            <li key={agent.agentId} className="flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-200">
+              <svg className="w-3 h-3 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+              </svg>
+              <span className="truncate">{agent.agentName}{agent.location ? ` — ${agent.location}` : ''}</span>
+            </li>
+          ))}
+        </ul>
       ) : (
-        <p className="text-sm text-gray-900 dark:text-gray-100">
+        <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
           {agentCount} location{agentCount !== 1 ? 's' : ''}
         </p>
-      )}
-      {showTooltip && hasAgentDetails && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg py-2 px-2.5 min-w-[200px] max-w-[300px]">
-          <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">Agent Locations</p>
-          <ul className="space-y-1">
-            {agents.map((agent) => (
-              <li key={agent.agentId} className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-200">
-                <svg className="w-3 h-3 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
-                </svg>
-                <span className="truncate">{agent.agentName}{agent.location ? ` — ${agent.location}` : ''}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
       )}
     </div>
   )
@@ -133,7 +123,7 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
         target: metadata.target,
         enabled: metadata.enabled,
         interval: metadata.interval,
-        agents: testDetails?.agents || [],
+        agents: (testDetails?.agents?.length ? testDetails.agents : null) || (metadata.agents?.map(a => ({ agentId: a.agentId, agentName: a.agentName, location: a.location })) ?? []),
         alertRules: testDetails?.alertRules || [],
         description: testDetails?.description || '',
         avgLatency: metadata.avgLatency,
@@ -289,7 +279,7 @@ export function TestPopup({ metadata, testName, onClose }: Props) {
           </div>
 
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-            <PopupAgentLocations agents={testDetails?.agents} agentCount={metadata.agentCount} />
+            <PopupAgentLocations agents={(testDetails?.agents?.length ? testDetails.agents : null) || metadata.agents as TestAgent[] | undefined} agentCount={metadata.agentCount} />
             <div>
               <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Test ID</span>
               <p className="text-sm text-gray-700 dark:text-gray-300 font-mono">{metadata.testId}</p>

@@ -13,7 +13,7 @@ from langgraph.types import StreamWriter
 
 from agents.state import AgentState
 from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, needs_forced_summary, safe_writer
-from agents.table_extractor import extract_test_table, _parse_result
+from agents.table_extractor import extract_test_table, _parse_result, ensure_agent_list
 from agents.tools import build_langchain_tools
 from config import settings
 from mcp_client.manager import mcp_manager
@@ -201,6 +201,9 @@ async def performance_node(state: AgentState, writer: StreamWriter) -> dict:
         except Exception as e:
             logger.warning("Performance agent: batch-fetch collection failed: %s", e)
         emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "complete"})
+
+    # Fetch agent details for test tables
+    await ensure_agent_list(tool_results)
 
     # Extract interactive tables from ThousandEyes test data if present
     table_data = extract_test_table(tool_results)

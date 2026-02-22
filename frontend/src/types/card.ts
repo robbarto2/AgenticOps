@@ -93,6 +93,13 @@ export interface NetworkProblemDevice {
   status: string
 }
 
+export interface WanUplinkAlert {
+  deviceName: string
+  serial: string
+  interface: string
+  status: string
+}
+
 export interface NetworkDetailCard extends CardBase {
   type: 'network_detail'
   data: {
@@ -111,6 +118,7 @@ export interface NetworkDetailCard extends CardBase {
       alertingCount?: number
     }
     problemDevices?: NetworkProblemDevice[]
+    wanAlerts?: WanUplinkAlert[]
   }
 }
 

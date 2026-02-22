@@ -154,6 +154,64 @@ def _extract_network_device_counts(tool_results: list[dict]) -> dict[str, dict]:
     return counts
 
 
+def _extract_network_wan_alerts(tool_results: list[dict]) -> dict[str, dict]:
+    """Build networkId → {failed: int, not_connected: int} from uplink status data."""
+    alerts: dict[str, dict] = {}
+
+    for result in tool_results:
+        if not _is_uplink_result(result):
+            continue
+
+        raw = result.get("result", "")
+        parsed = _parse_result(raw)
+        if parsed is None:
+            continue
+
+        # Handle wrapped/truncated responses
+        if isinstance(parsed, dict):
+            if parsed.get("_response_truncated") and parsed.get("_full_response_cached"):
+                full_data = _read_cached_file(parsed["_full_response_cached"])
+                if full_data is not None:
+                    parsed = full_data
+                else:
+                    parsed = parsed.get("_preview") or []
+            else:
+                sample = (parsed.get("data") or parsed.get("results")
+                          or parsed.get("_preview") or parsed.get("_sample"))
+                if isinstance(sample, list):
+                    parsed = sample
+                else:
+                    continue
+
+        if not isinstance(parsed, list):
+            continue
+
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            net_id = item.get("networkId", "")
+            if not net_id:
+                continue
+            uplinks = item.get("uplinks", [])
+            if not isinstance(uplinks, list):
+                continue
+            for uplink in uplinks:
+                if not isinstance(uplink, dict):
+                    continue
+                status = (uplink.get("status") or "").lower()
+                if status in ("failed", "not connected"):
+                    if net_id not in alerts:
+                        alerts[net_id] = {"failed": 0, "not_connected": 0}
+                    if status == "failed":
+                        alerts[net_id]["failed"] += 1
+                    else:
+                        alerts[net_id]["not_connected"] += 1
+
+    if alerts:
+        logger.info("_extract_network_wan_alerts: found WAN alerts in %d networks: %s", len(alerts), alerts)
+    return alerts
+
+
 def _detect_network_health_filter(user_query: str) -> str | None:
     """Detect if user is asking for networks filtered by device health.
 
@@ -189,6 +247,9 @@ def extract_network_table(tool_results: list[dict], user_query: str = "") -> lis
 
     # Build per-network device counts from status data
     device_counts = _extract_network_device_counts(tool_results)
+
+    # Build per-network WAN uplink alerts (failed / not connected)
+    wan_alerts = _extract_network_wan_alerts(tool_results)
 
     # Detect health filter from user query
     health_filter = _detect_network_health_filter(user_query)
@@ -267,10 +328,27 @@ def extract_network_table(tool_results: list[dict], user_query: str = "") -> lis
             device_alerting = net_counts.get("alerting")
             device_online = net_counts.get("online")
 
-            # Determine row highlight based on device health
+            # Look up WAN uplink alerts for this network
+            net_wan = wan_alerts.get(network_id, {})
+            wan_failed = net_wan.get("failed", 0)
+            wan_not_connected = net_wan.get("not_connected", 0)
+
+            # Build WAN status cell text
+            if wan_failed > 0:
+                wan_cell = f"{wan_failed} failed"
+            elif wan_not_connected > 0:
+                wan_cell = f"{wan_not_connected} down"
+            else:
+                wan_cell = ""
+
+            # Determine row highlight based on device health AND WAN status
             if device_offline and device_offline > 0:
                 status_type = "error"
+            elif wan_failed > 0:
+                status_type = "error"
             elif device_alerting and device_alerting > 0:
+                status_type = "warning"
+            elif wan_not_connected > 0:
                 status_type = "warning"
             else:
                 status_type = "normal"
@@ -279,12 +357,13 @@ def extract_network_table(tool_results: list[dict], user_query: str = "") -> lis
             if health_filter:
                 has_offline = bool(device_offline and device_offline > 0)
                 has_alerting = bool(device_alerting and device_alerting > 0)
+                has_wan_alert = wan_failed > 0 or wan_not_connected > 0
 
-                if health_filter == "alerting" and not has_alerting:
+                if health_filter == "alerting" and not (has_alerting or has_wan_alert):
                     continue
                 elif health_filter == "offline" and not has_offline:
                     continue
-                elif health_filter == "problems" and not (has_offline or has_alerting):
+                elif health_filter == "problems" and not (has_offline or has_alerting or has_wan_alert):
                     continue
 
             rows.append({
@@ -295,6 +374,7 @@ def extract_network_table(tool_results: list[dict], user_query: str = "") -> lis
                     str(device_online) if device_online is not None else "—",
                     str(device_offline) if device_offline is not None else "—",
                     str(device_alerting) if device_alerting is not None else "—",
+                    wan_cell,
                     ", ".join(tags) if tags else "",
                 ],
                 "status_type": status_type,
@@ -308,6 +388,8 @@ def extract_network_table(tool_results: list[dict], user_query: str = "") -> lis
                     "onlineCount": device_online,
                     "offlineCount": device_offline,
                     "alertingCount": device_alerting,
+                    "wanFailed": wan_failed if wan_failed else None,
+                    "wanNotConnected": wan_not_connected if wan_not_connected else None,
                 },
             })
 
@@ -323,7 +405,7 @@ def extract_network_table(tool_results: list[dict], user_query: str = "") -> lis
                 "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
                 "entity_type": "network",
                 "source": "meraki",
-                "columns": ["Name", "Product Types", "Active", "Offline", "Alerting", "Tags"],
+                "columns": ["Name", "Product Types", "Active", "Offline", "Alerting", "WAN", "Tags"],
                 "rows": rows,
             }
             tables.append(table)
@@ -1047,6 +1129,36 @@ def _extract_test_metrics_map(tool_results: list[dict]) -> dict[str, dict]:
     return metrics_map
 
 
+def _build_agent_lookup(tool_results: list[dict]) -> dict[str, dict]:
+    """Build agentId → {agentName, location} map from agent listing tool results."""
+    agent_map: dict[str, dict] = {}
+    _agent_tool_names = {"list_cloud_enterprise_agents", "list_endpoint_agents"}
+    for result in tool_results:
+        if result.get("tool", "") not in _agent_tool_names:
+            continue
+        raw = result.get("result", "")
+        parsed = _parse_result(raw)
+        if parsed is None:
+            continue
+        agents = []
+        if isinstance(parsed, dict):
+            agents = parsed.get("agents") or parsed.get("data") or parsed.get("items") or []
+        elif isinstance(parsed, list):
+            agents = parsed
+        for ag in agents:
+            if not isinstance(ag, dict):
+                continue
+            aid = str(ag.get("agentId", ag.get("id", "")))
+            if aid:
+                agent_map[aid] = {
+                    "agentName": ag.get("agentName") or ag.get("name") or ag.get("agentLabel") or "",
+                    "location": ag.get("location") or ag.get("countryId") or ag.get("country") or "",
+                }
+    if agent_map:
+        logger.info("_build_agent_lookup: built lookup with %d agents", len(agent_map))
+    return agent_map
+
+
 def extract_test_table(tool_results: list[dict], *, active_only: bool = False) -> list[dict]:
     """Find ThousandEyes test listing results and build structured table data.
 
@@ -1062,6 +1174,9 @@ def extract_test_table(tool_results: list[dict], *, active_only: bool = False) -
 
     # Build test_id → metrics map from get_network_app_synthetics_metrics results
     test_metrics_map = _extract_test_metrics_map(tool_results)
+
+    # Build agentId → {name, location} lookup from agent listing results
+    agent_lookup = _build_agent_lookup(tool_results)
 
     for result in tool_results:
         tool_name = result.get("tool", "")
@@ -1108,9 +1223,37 @@ def extract_test_table(tool_results: list[dict], *, active_only: bool = False) -
             if active_only and not enabled:
                 continue
 
-            # Get agent count
-            agents = test.get("agents") or test.get("agentIds") or []
-            agent_count = len(agents) if isinstance(agents, list) else 0
+            # Get agents with details
+            raw_agents = test.get("agents") or test.get("agentIds") or []
+            agent_count = len(raw_agents) if isinstance(raw_agents, list) else 0
+            # Build structured agent list for display (name + location)
+            agent_details = []
+            if isinstance(raw_agents, list) and raw_agents:
+                logger.info("extract_test_table: test '%s' raw_agents[0] type=%s value=%s",
+                            test_name, type(raw_agents[0]).__name__, str(raw_agents[0])[:200])
+                for ag in raw_agents:
+                    if isinstance(ag, dict):
+                        aid = str(ag.get("agentId", ag.get("id", "")))
+                        # Try to get name from the agent object first, then fall back to lookup
+                        name = ag.get("agentName") or ag.get("name") or ag.get("agentLabel") or ""
+                        location = ag.get("location") or ag.get("countryId") or ag.get("country") or ""
+                        if (not name) and aid and aid in agent_lookup:
+                            name = agent_lookup[aid].get("agentName", "")
+                            location = location or agent_lookup[aid].get("location", "")
+                        agent_details.append({
+                            "agentId": aid,
+                            "agentName": name or f"Agent {aid}",
+                            "location": location,
+                        })
+                    elif isinstance(ag, (int, str)):
+                        # Agent is just an ID — look up details from agent listing
+                        aid = str(ag)
+                        lookup = agent_lookup.get(aid, {})
+                        agent_details.append({
+                            "agentId": aid,
+                            "agentName": lookup.get("agentName") or f"Agent {aid}",
+                            "location": lookup.get("location", ""),
+                        })
 
             # Get metrics if available
             metrics = test_metrics_map.get(str(test_id), {})
@@ -1167,6 +1310,7 @@ def extract_test_table(tool_results: list[dict], *, active_only: bool = False) -
                     "enabled": enabled,
                     "interval": interval,
                     "agentCount": agent_count,
+                    "agents": agent_details,
                     "avgLatency": round(avg_latency, 1) if avg_latency is not None else None,
                     "packetLoss": round(packet_loss, 2) if packet_loss is not None else None,
                     "availability": round(availability, 2) if availability is not None else None,
@@ -1198,6 +1342,37 @@ def extract_test_table(tool_results: list[dict], *, active_only: bool = False) -
         logger.info("extract_test_table: no test tables extracted from tool results")
 
     return tables
+
+
+async def ensure_agent_list(tool_results: list[dict]) -> None:
+    """Fetch ThousandEyes agent list if not already in tool_results.
+
+    This is needed to map agent IDs to names/locations in test tables.
+    Call this before extract_test_table() to ensure agent details are available.
+    """
+    import asyncio
+    from mcp_client.manager import mcp_manager
+
+    _agent_tools = {"list_cloud_enterprise_agents", "list_endpoint_agents"}
+    has_agents = any(r.get("tool", "") in _agent_tools for r in tool_results)
+    if has_agents or not mcp_manager.te_connected:
+        return
+
+    try:
+        result = await asyncio.wait_for(
+            mcp_manager.call_tool("list_cloud_enterprise_agents", {}),
+            timeout=15,
+        )
+        content = result.get("content", "")
+        if content and "error" not in result:
+            tool_results.append({
+                "tool": "list_cloud_enterprise_agents",
+                "args": {},
+                "result": content,
+            })
+            logger.info("ensure_agent_list: fetched agent list OK (len=%d)", len(content))
+    except Exception as e:
+        logger.warning("ensure_agent_list: agent list fetch failed: %s", e)
 
 
 def _is_client_result(result: dict) -> bool:

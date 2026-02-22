@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import type { NetworkDetailCard as NetworkDetailCardType, NetworkProblemDevice } from '../../types/card'
+import type { NetworkDetailCard as NetworkDetailCardType, NetworkProblemDevice, WanUplinkAlert } from '../../types/card'
 import { StatDetailPopover, type DetailType } from './StatDetailPopover'
 import { useChatStore } from '../../store/chatSlice'
 
@@ -14,6 +14,7 @@ export function NetworkDetailCard({ data }: Props) {
   const [liveStats, setLiveStats] = useState(data.stats)
   const [liveLocation, setLiveLocation] = useState(data.location)
   const [problemDevices, setProblemDevices] = useState<NetworkProblemDevice[]>(data.problemDevices ?? [])
+  const [wanAlerts, setWanAlerts] = useState<WanUplinkAlert[]>(data.wanAlerts ?? [])
 
   // Check if this network has wireless products (MR or CW)
   const hasWireless = data.productTypes?.some(pt =>
@@ -41,6 +42,7 @@ export function NetworkDetailCard({ data }: Props) {
         })
         if (s.location) setLiveLocation(s.location)
         if (s.problemDevices?.length) setProblemDevices(s.problemDevices)
+        if (s.wanAlerts?.length) setWanAlerts(s.wanAlerts)
       })
       .catch((err) => {
         console.error('Failed to fetch live stats:', err)
@@ -64,9 +66,11 @@ export function NetworkDetailCard({ data }: Props) {
   const offlineCount = liveStats.offlineCount ?? 0
   const alertingCount = liveStats.alertingCount ?? 0
   const hasBreakdown = onlineCount > 0 || offlineCount > 0 || alertingCount > 0
-  const allOnline = hasBreakdown && offlineCount === 0 && alertingCount === 0
+  const allOnline = hasBreakdown && offlineCount === 0 && alertingCount === 0 && wanAlerts.length === 0
   const offlineDevices = problemDevices.filter(d => d.status.toLowerCase() === 'offline' || d.status.toLowerCase() === 'dormant')
   const alertingDevices = problemDevices.filter(d => d.status.toLowerCase() === 'alerting')
+  const failedWan = wanAlerts.filter(a => a.status.toLowerCase() === 'failed')
+  const downWan = wanAlerts.filter(a => a.status.toLowerCase() === 'not connected')
 
   return (
     <div className="space-y-3">
@@ -209,6 +213,61 @@ export function NetworkDetailCard({ data }: Props) {
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <span className="text-xs text-amber-400 font-medium">Alerting</span>
+                    <svg className="w-3 h-3 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* WAN Uplink Alerts */}
+      {wanAlerts.length > 0 && (
+        <>
+          <div className="border-t border-gray-200 dark:border-gray-800" />
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <svg className="w-4 h-4 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">WAN Uplink Issues</span>
+            </div>
+            <div className="space-y-1.5">
+              {failedWan.map((a, i) => (
+                <div
+                  key={`wan-f-${i}`}
+                  onClick={() => setPendingPrompt(`Troubleshoot the failed WAN uplink ${a.interface} on device ${a.serial}. Check uplink status, recent events, and determine the cause.`)}
+                  className="flex items-center gap-2 p-2 bg-red-500/5 border border-red-500/15 rounded-md cursor-pointer hover:bg-red-500/10 transition-colors"
+                >
+                  <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{a.interface}</p>
+                    <p className="text-xs text-gray-500">{a.serial}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className="text-xs text-red-400 font-medium">Failed</span>
+                    <svg className="w-3 h-3 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </div>
+                </div>
+              ))}
+              {downWan.map((a, i) => (
+                <div
+                  key={`wan-d-${i}`}
+                  onClick={() => setPendingPrompt(`Check the WAN uplink ${a.interface} on device ${a.serial} which is not connected. Show uplink status details.`)}
+                  className="flex items-center gap-2 p-2 bg-amber-500/5 border border-amber-500/15 rounded-md cursor-pointer hover:bg-amber-500/10 transition-colors"
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{a.interface}</p>
+                    <p className="text-xs text-gray-500">{a.serial}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className="text-xs text-amber-400 font-medium">Not Connected</span>
                     <svg className="w-3 h-3 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                     </svg>
