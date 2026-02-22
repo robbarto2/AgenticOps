@@ -1,6 +1,8 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useCanvasStore } from '../../store/canvasSlice'
 import { useQueueStore } from '../../store/queueSlice'
+import type { DeviceDetailCard } from '../../types/card'
 
 interface UplinkMetadata {
   serial: string
@@ -25,6 +27,8 @@ interface Props {
 export function UplinkPopup({ metadata, deviceName, onClose }: Props) {
   const popupRef = useRef<HTMLDivElement>(null)
   const addPrompt = useQueueStore((s) => s.addPrompt)
+  const addCard = useCanvasStore((s) => s.addCard)
+  const [isDissolving, setIsDissolving] = useState(false)
 
   // Close on outside click
   useEffect(() => {
@@ -52,6 +56,40 @@ export function UplinkPopup({ metadata, deviceName, onClose }: Props) {
     onClose()
   }
 
+  const handleAddToCanvas = () => {
+    const modelPrefix = (metadata.model || '').substring(0, 2).toUpperCase()
+    const deviceType =
+      modelPrefix === 'MX' ? 'Security Appliance' :
+      modelPrefix === 'MG' ? 'Cellular Gateway' :
+      'Network Device'
+
+    const cardData: DeviceDetailCard = {
+      id: `card-device-${metadata.serial}-${Date.now()}`,
+      type: 'device_detail',
+      title: metadata.deviceName || deviceName,
+      source: 'meraki',
+      data: {
+        serial: metadata.serial,
+        model: metadata.model || '',
+        deviceType,
+        lanIp: metadata.ip,
+        networkId: metadata.networkId,
+        status: metadata.status,
+      },
+    }
+
+    setIsDissolving(true)
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        addCard(cardData)
+        onClose()
+      }, 220)
+    })
+  }
+
+  const merakiUrl = metadata.networkId && metadata.serial
+    ? `https://dashboard.meraki.com/n/${metadata.networkId}/manage/nodes/${metadata.serial}/general` : null
+
   const statusPillClass =
     statusLower === 'active'         ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
     statusLower === 'ready'          ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
@@ -73,7 +111,7 @@ export function UplinkPopup({ metadata, deviceName, onClose }: Props) {
       <div className="absolute inset-0 bg-black/40" />
       <div
         ref={popupRef}
-        className="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl"
+        className={`relative bg-white dark:bg-gray-900 border-2 border-gray-300 dark:border-gray-400 rounded-lg shadow-2xl ${isDissolving ? 'animate-popup-dissolve' : ''}`}
         style={{ width: 380, maxHeight: '80vh', overflow: 'auto' }}
       >
         {/* Header */}
@@ -155,14 +193,31 @@ export function UplinkPopup({ metadata, deviceName, onClose }: Props) {
               <p className="text-xs text-gray-800 dark:text-gray-300">{metadata.networkName}</p>
             </div>
           )}
+
+          {metadata.networkId && (
+            <div>
+              <span className="text-xs text-gray-500">Network ID</span>
+              <p className="text-xs text-gray-600 dark:text-gray-400 font-mono">{metadata.networkId}</p>
+            </div>
+          )}
         </div>
 
         {/* Divider */}
         <div className="border-t border-gray-200 dark:border-gray-800" />
 
         {/* Actions */}
-        <div className="px-3 py-2">
-          {showTroubleshoot ? (
+        <div className="px-3 py-2 space-y-1.5">
+          <button
+            onClick={handleAddToCanvas}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-md transition-colors cursor-pointer"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Add to Canvas
+          </button>
+
+          {showTroubleshoot && (
             <button
               onClick={handleTroubleshoot}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-md transition-colors cursor-pointer"
@@ -172,7 +227,20 @@ export function UplinkPopup({ metadata, deviceName, onClose }: Props) {
               </svg>
               Troubleshoot Uplink
             </button>
-          ) : (
+          )}
+
+          {merakiUrl && (
+            <a href={merakiUrl} target="_blank" rel="noopener noreferrer"
+              className="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md transition-colors"
+            >
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+              Open in Meraki Dashboard
+            </a>
+          )}
+
+          {!showTroubleshoot && !merakiUrl && (
             <p className="text-center text-xs text-gray-500 py-0.5">Uplink is healthy</p>
           )}
         </div>

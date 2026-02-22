@@ -277,12 +277,13 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
                 ("NET_LATENCY", "network latency"),
                 ("NET_LOSS", "packet loss"),
             ]
-            for metric_id, label in batch_metrics:
-                emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "running"})
+            emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "running"})
+
+            async def _fetch_metric(mid: str, lbl: str) -> tuple[str, str, dict | None]:
                 try:
-                    metrics_result = await asyncio.wait_for(
+                    result = await asyncio.wait_for(
                         mcp_manager.call_tool("get_network_app_synthetics_metrics", {
-                            "metric_id": metric_id,
+                            "metric_id": mid,
                             "start_date": start_str,
                             "end_date": end_str,
                             "aggregation_type": "MEAN",
@@ -290,6 +291,14 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
                         }),
                         timeout=15,
                     )
+                    return mid, lbl, result
+                except Exception as e:
+                    logger.warning("Discovery node: %s fetch failed: %s", mid, e)
+                    return mid, lbl, None
+
+            fetch_results = await asyncio.gather(*[_fetch_metric(mid, lbl) for mid, lbl in batch_metrics])
+            for metric_id, label, metrics_result in fetch_results:
+                if metrics_result:
                     content = metrics_result.get("content", "")
                     is_error = "error" in metrics_result or (isinstance(content, str) and content.strip().lower().startswith("error"))
                     if not is_error and content:
@@ -301,27 +310,155 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
                         logger.info("Discovery node: fetched %s metrics OK (len=%d)", metric_id, len(content))
                     else:
                         logger.info("Discovery node: %s returned error or empty", metric_id)
-                except asyncio.TimeoutError:
-                    logger.warning("Discovery node: %s fetch timed out", metric_id)
-                except Exception as e:
-                    logger.warning("Discovery node: %s fetch failed: %s", metric_id, e)
-                emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "complete"})
+
+            emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "complete"})
         elif has_metrics:
             logger.info("Discovery node: skipping programmatic metrics fetch — LLM already called metrics tools")
 
-        table_data = extract_test_table(tool_results)
-        logger.info("Discovery node: extracted %d test table_data entries from %d tool_results",
-                     len(table_data), len(tool_results))
+        # Detect if user wants only active/enabled tests
+        q_lower = query.lower()
+        active_only = any(kw in q_lower for kw in ("active", "enabled", "running", "currently running"))
+        table_data = extract_test_table(tool_results, active_only=active_only)
+        logger.info("Discovery node: extracted %d test table_data entries from %d tool_results (active_only=%s)",
+                     len(table_data), len(tool_results), active_only)
         if table_data and response:
             n_tests = sum(len(t.get("rows", [])) for t in table_data)
-            response = AIMessage(content=f"Found **{n_tests} tests**.", id=response.id)
+            qualifier = " active" if active_only else ""
+            response = AIMessage(content=f"Found **{n_tests}{qualifier} tests**.", id=response.id)
     elif _is_uplink_query(query):
+        # Programmatically ensure uplink statuses, device names, and network names
+        # are fetched — the LLM often fails to call the right tools for uplinks.
+        _uplink_methods = {"getorganizationapplianceuplinkstatuses"}
+        has_uplink_data = any(
+            r.get("tool", "").lower().rstrip() in _uplink_methods
+            or (r.get("tool") == "call_meraki_api" and r.get("args", {}).get("method", "").lower() in _uplink_methods)
+            for r in tool_results
+        )
+        _device_tool_names = {"getorganizationdevices"}
+        has_device_data = any(
+            r.get("tool", "").lower().rstrip() in _device_tool_names
+            or (r.get("tool") == "call_meraki_api" and r.get("args", {}).get("method", "").lower() in _device_tool_names)
+            for r in tool_results
+        )
+        _network_tool_names = {"getorganizationnetworks"}
+        has_network_data = any(
+            r.get("tool", "").lower().rstrip() in _network_tool_names
+            or (r.get("tool") == "call_meraki_api" and r.get("args", {}).get("method", "").lower() in _network_tool_names)
+            for r in tool_results
+        )
+
+        async def _fetch_uplink_statuses():
+            if has_uplink_data:
+                return
+            emit({"type": "tool_call", "tool": "getOrganizationApplianceUplinkStatuses", "source": "meraki", "status": "running"})
+            try:
+                result = await asyncio.wait_for(
+                    mcp_manager.call_tool("call_meraki_api", {
+                        "section": "appliance",
+                        "method": "getOrganizationApplianceUplinkStatuses",
+                        "parameters": {},
+                    }),
+                    timeout=20,
+                )
+                if "error" not in result:
+                    content = result.get("content", "")
+                    logger.info("Discovery node: uplink statuses fetch OK (%d chars)", len(content))
+                    tool_results.append({
+                        "tool": "call_meraki_api",
+                        "args": {"method": "getOrganizationApplianceUplinkStatuses"},
+                        "result": content,
+                    })
+                else:
+                    logger.warning("Discovery node: uplink statuses error: %s", result.get("error"))
+            except asyncio.TimeoutError:
+                logger.warning("Discovery node: uplink statuses timed out")
+            except Exception as e:
+                logger.warning("Discovery node: uplink statuses failed: %s", e)
+            emit({"type": "tool_call", "tool": "getOrganizationApplianceUplinkStatuses", "source": "meraki", "status": "complete"})
+
+        async def _fetch_appliance_devices():
+            if has_device_data:
+                return
+            emit({"type": "tool_call", "tool": "getOrganizationDevices", "source": "meraki", "status": "running"})
+            try:
+                result = await asyncio.wait_for(
+                    mcp_manager.call_tool("call_meraki_api", {
+                        "section": "organizations",
+                        "method": "getOrganizationDevices",
+                        "parameters": {"productTypes[]": ["appliance"]},
+                    }),
+                    timeout=20,
+                )
+                if "error" not in result:
+                    content = result.get("content", "")
+                    logger.info("Discovery node: appliance devices fetch OK (%d chars)", len(content))
+                    tool_results.append({
+                        "tool": "call_meraki_api",
+                        "args": {"method": "getOrganizationDevices"},
+                        "result": content,
+                    })
+                else:
+                    logger.warning("Discovery node: appliance devices error: %s", result.get("error"))
+            except asyncio.TimeoutError:
+                logger.warning("Discovery node: appliance devices timed out")
+            except Exception as e:
+                logger.warning("Discovery node: appliance devices failed: %s", e)
+            emit({"type": "tool_call", "tool": "getOrganizationDevices", "source": "meraki", "status": "complete"})
+
+        async def _fetch_networks():
+            if has_network_data:
+                return
+            emit({"type": "tool_call", "tool": "getOrganizationNetworks", "source": "meraki", "status": "running"})
+            try:
+                result = await asyncio.wait_for(
+                    mcp_manager.call_tool("getOrganizationNetworks", {}),
+                    timeout=20,
+                )
+                if "error" not in result:
+                    content = result.get("content", "")
+                    logger.info("Discovery node: networks fetch OK (%d chars)", len(content))
+                    tool_results.append({
+                        "tool": "getOrganizationNetworks",
+                        "args": {},
+                        "result": content,
+                    })
+                else:
+                    logger.warning("Discovery node: networks error: %s", result.get("error"))
+            except asyncio.TimeoutError:
+                logger.warning("Discovery node: networks timed out")
+            except Exception as e:
+                logger.warning("Discovery node: networks failed: %s", e)
+            emit({"type": "tool_call", "tool": "getOrganizationNetworks", "source": "meraki", "status": "complete"})
+
+        if mcp_manager.meraki_connected:
+            await asyncio.gather(
+                _fetch_uplink_statuses(),
+                _fetch_appliance_devices(),
+                _fetch_networks(),
+            )
+
         table_data = extract_uplink_table(tool_results)
         logger.info("Discovery node: extracted %d uplink table_data entries from %d tool_results",
                      len(table_data), len(tool_results))
         if table_data and response:
-            # Keep the LLM's text analysis but strip any markdown tables
-            response = _strip_markdown_tables(response)
+            n_uplinks = sum(len(t.get("rows", [])) for t in table_data)
+            # Build a concise summary
+            summary_parts = [f"Found **{n_uplinks} WAN uplink{'s' if n_uplinks != 1 else ''}** across your appliances."]
+            # Count statuses
+            all_rows = [row for t in table_data for row in t.get("rows", [])]
+            failed = sum(1 for r in all_rows if isinstance(r, dict) and r.get("status", "").lower() == "failed")
+            not_connected = sum(1 for r in all_rows if isinstance(r, dict) and r.get("status", "").lower() == "not connected")
+            active = sum(1 for r in all_rows if isinstance(r, dict) and r.get("status", "").lower() == "active")
+            if failed > 0:
+                summary_parts.append(f"**{failed} failed**")
+            if not_connected > 0:
+                summary_parts.append(f"{not_connected} not connected")
+            if active > 0:
+                summary_parts.append(f"{active} active")
+            if failed > 0 or not_connected > 0:
+                response = AIMessage(content=summary_parts[0] + " " + ", ".join(summary_parts[1:]) + ".", id=response.id)
+            else:
+                response = AIMessage(content=summary_parts[0] + " All uplinks healthy.", id=response.id)
     else:
         logger.info("Discovery node: skipping table extraction (not a network/device/client/test listing query)")
 

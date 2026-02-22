@@ -133,7 +133,7 @@ export function HoverPopup({ metadata, entityType, anchorRect, networkName, onCl
       <div className="absolute inset-0 bg-black/40" />
       <div
         ref={popupRef}
-        className="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl"
+        className="relative bg-white dark:bg-gray-900 border-2 border-gray-300 dark:border-gray-400 rounded-lg shadow-2xl"
         style={{ width: popupWidth, maxHeight: '80vh', overflow: 'auto' }}
       >
       {/* Header */}
@@ -226,33 +226,33 @@ export function HoverPopup({ metadata, entityType, anchorRect, networkName, onCl
           <div className="space-y-2">
             {/* Active / Inactive devices row */}
             <div className="grid grid-cols-2 gap-2">
-              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
+              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-600 rounded-lg">
                 <p className="text-lg font-semibold text-emerald-400">
                   {stats.onlineCount != null && stats.onlineCount >= 0 ? stats.onlineCount : (stats.deviceCount >= 0 ? stats.deviceCount : '—')}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">Active Devices</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">Active Devices</p>
               </div>
-              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
+              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-600 rounded-lg">
                 <p className={`text-lg font-semibold ${((stats.offlineCount ?? 0) + (stats.alertingCount ?? 0)) > 0 ? 'text-red-400' : 'text-gray-900 dark:text-gray-200'}`}>
                   {stats.onlineCount != null && stats.onlineCount >= 0 ? (stats.offlineCount ?? 0) + (stats.alertingCount ?? 0) : '—'}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">Inactive Devices</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">Inactive Devices</p>
               </div>
             </div>
 
             {/* Clients + SSIDs row */}
             <div className="grid grid-cols-2 gap-2">
-              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
+              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-600 rounded-lg">
                 <p className={`text-lg font-semibold ${stats.clientCount < 0 ? 'text-gray-500' : 'text-gray-900 dark:text-gray-200'}`}>
                   {stats.clientCount < 0 ? '—' : stats.clientCount}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">Clients</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">Clients</p>
               </div>
-              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 rounded-lg">
+              <div className="text-center p-2 bg-gray-100 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-600 rounded-lg">
                 <p className={`text-lg font-semibold ${stats.ssidCount < 0 ? 'text-gray-500' : 'text-gray-900 dark:text-gray-200'}`}>
                   {stats.ssidCount < 0 ? '—' : stats.ssidCount}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">SSIDs</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">SSIDs</p>
               </div>
             </div>
 
@@ -263,7 +263,7 @@ export function HoverPopup({ metadata, entityType, anchorRect, networkName, onCl
                   <svg className="w-3.5 h-3.5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                   </svg>
-                  <span className="text-xs font-medium text-gray-300">Device Issues</span>
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Device Issues</span>
                 </div>
                 <div className="space-y-1">
                   {stats.problemDevices.map((d) => {
@@ -276,11 +276,11 @@ export function HoverPopup({ metadata, entityType, anchorRect, networkName, onCl
                           setPendingPrompt(`Troubleshoot device ${d.name} (${d.model}, serial ${d.serial}) which is ${statusLabel}. Check recent events, device status, connectivity, and determine the likely cause and recommended remediation.`)
                           onClose()
                         }}
-                        className={`flex items-center gap-2 p-1.5 rounded-md cursor-pointer transition-colors ${isAlerting ? 'bg-amber-500/5 border border-amber-500/15 hover:bg-amber-500/10' : 'bg-red-500/5 border border-red-500/15 hover:bg-red-500/10'}`}
+                        className={`flex items-center gap-2 p-1.5 rounded-md cursor-pointer transition-colors ${isAlerting ? 'bg-amber-500/5 border border-amber-500/30 hover:bg-amber-500/10' : 'bg-red-500/5 border border-red-500/30 hover:bg-red-500/10'}`}
                       >
                         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isAlerting ? 'bg-amber-500' : 'bg-red-500'}`} />
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs text-gray-300 truncate">{d.name}</p>
+                          <p className="text-xs text-gray-800 dark:text-gray-200 truncate">{d.name}</p>
                           <p className="text-xs text-gray-500">{d.model}</p>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">

@@ -19,7 +19,7 @@ from mcp_client.types import ToolDescriptor
 logger = logging.getLogger(__name__)
 
 # Rate limiting: minimum delay between API calls (in seconds)
-MIN_CALL_INTERVAL = 0.5  # 500ms between calls = max 2 calls/sec
+MIN_CALL_INTERVAL = 0.1  # 100ms between calls = max 10 calls/sec
 
 # Cache TTL: how long to cache results (in seconds)
 CACHE_TTL = 3600  # 1 hour (aggressive caching to minimize API traffic and avoid rate limits)
@@ -48,9 +48,12 @@ class MCPClientManager:
         self._tools: list[ToolDescriptor] = []
         self._tool_map: dict[str, ToolDescriptor] = {}
 
-        # Rate limiting (lock prevents concurrent calls from bypassing the throttle)
-        self._last_call_time: float = 0
-        self._throttle_lock: asyncio.Lock = asyncio.Lock()
+        # Per-source rate limiting so Meraki and TE calls don't block each other
+        self._last_call_time: dict[str, float] = {"meraki": 0, "thousandeyes": 0}
+        self._throttle_lock: dict[str, asyncio.Lock] = {
+            "meraki": asyncio.Lock(),
+            "thousandeyes": asyncio.Lock(),
+        }
 
         # Cache: {cache_key: (result, timestamp)}
         self._cache: dict[str, tuple[dict, float]] = {}
@@ -185,21 +188,23 @@ class MCPClientManager:
         self._cache[cache_key] = (result, time.time())
         logger.debug("Cache STORE for key %s (%d total cached)", cache_key[:8], len(self._cache))
 
-    async def _throttle(self) -> None:
-        """Apply rate limiting by waiting if needed.
+    async def _throttle(self, source: str = "meraki") -> None:
+        """Apply per-source rate limiting by waiting if needed.
 
         Uses an asyncio.Lock so that concurrent callers (e.g. from
         asyncio.gather) properly queue up instead of all reading the
-        same _last_call_time and firing simultaneously.
+        same _last_call_time and firing simultaneously.  Meraki and
+        ThousandEyes each have independent throttle state.
         """
-        async with self._throttle_lock:
+        lock = self._throttle_lock.get(source, self._throttle_lock["meraki"])
+        async with lock:
             now = time.time()
-            time_since_last = now - self._last_call_time
+            time_since_last = now - self._last_call_time.get(source, 0)
             if time_since_last < MIN_CALL_INTERVAL:
                 wait_time = MIN_CALL_INTERVAL - time_since_last
-                logger.debug("Throttling: waiting %.3fs before next API call", wait_time)
+                logger.debug("Throttling %s: waiting %.3fs before next API call", source, wait_time)
                 await asyncio.sleep(wait_time)
-            self._last_call_time = time.time()
+            self._last_call_time[source] = time.time()
 
     @staticmethod
     def _is_rate_limit(text: str) -> bool:
@@ -207,11 +212,14 @@ class MCPClientManager:
         lower = text.lower()
         return any(marker in lower for marker in _RATE_LIMIT_MARKERS)
 
-    async def call_tool(self, tool_name: str, arguments: dict | None = None) -> dict:
+    async def call_tool(self, tool_name: str, arguments: dict | None = None, *, skip_cache: bool = False) -> dict:
         """Call an MCP tool by name, routing to the correct session.
 
         Implements caching, rate limiting, and retry with exponential backoff.
         Detects rate-limit errors both from exceptions AND from MCP response content.
+
+        When *skip_cache* is True the cached lookup is bypassed but the fresh
+        result is still stored, benefiting subsequent callers.
         """
         descriptor = self._tool_map.get(tool_name)
         if descriptor is None:
@@ -219,9 +227,10 @@ class MCPClientManager:
 
         # Check cache first (only for read operations, not writes)
         cache_key = self._make_cache_key(tool_name, arguments)
-        cached = self._get_cached(cache_key)
-        if cached is not None:
-            return cached
+        if not skip_cache:
+            cached = self._get_cached(cache_key)
+            if cached is not None:
+                return cached
 
         session = (
             self._meraki_session if descriptor.source == "meraki" else self._te_session
@@ -232,8 +241,8 @@ class MCPClientManager:
 
         # Retry loop with exponential backoff for rate limits
         for attempt in range(MAX_RETRIES):
-            # Apply rate limiting before each attempt
-            await self._throttle()
+            # Apply per-source rate limiting before each attempt
+            await self._throttle(descriptor.source)
 
             try:
                 result = await asyncio.wait_for(

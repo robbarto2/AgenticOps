@@ -44,7 +44,7 @@ export function ChatInput({ onSend, onStop }: Props) {
           onKeyDown={handleKeyDown}
           placeholder="Ask about your network..."
           rows={1}
-          className="flex-1 resize-none bg-gray-100 dark:bg-[#141c2b] border border-gray-300 dark:border-[#263045] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-200 placeholder:text-gray-500 dark:placeholder:text-gray-500 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/25 transition-colors"
+          className="flex-1 resize-none bg-gray-100 dark:bg-[#141c2b] border border-gray-400 dark:border-gray-400 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-200 placeholder:text-gray-500 dark:placeholder:text-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/40 transition-colors"
           disabled={false}
         />
         {isProcessing && !queueVisible ? (

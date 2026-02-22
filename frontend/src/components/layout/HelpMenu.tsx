@@ -17,7 +17,6 @@ const PROMPT_CATEGORIES: PromptCategory[] = [
       'List all my networks',
       'List all devices across the organization',
       'Show me all connected clients across all networks in the organization',
-      'Show organization-wide network health',
       'Show organization license info',
       'What devices are offline across the organization?',
       'Display device inventory by model across the organization',
@@ -62,7 +61,7 @@ const PROMPT_CATEGORIES: PromptCategory[] = [
     label: 'Monitoring',
     source: 'thousandeyes',
     prompts: [
-      'What applications are we tracking with ThousandEyes?',
+      'What active applications are we tracking with ThousandEyes?',
       'What ThousandEyes tests are currently running?',
       'Are there any active ThousandEyes alerts?',
       'Show me recent ThousandEyes test failures',
@@ -148,7 +147,7 @@ export function HelpMenu() {
       {categories.map((category) => (
         <div key={category.label}>
           <div className="px-3 py-1.5">
-            <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+            <span className="text-[11px] font-medium text-gray-400 dark:text-gray-400 uppercase tracking-wide">
               {category.label}
             </span>
           </div>
@@ -156,7 +155,7 @@ export function HelpMenu() {
             <button
               key={prompt}
               onClick={() => handleSelect(prompt)}
-              className="w-full text-left px-4 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors cursor-pointer"
+              className="w-full text-left px-4 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors cursor-pointer"
             >
               {prompt}
             </button>
@@ -174,7 +173,7 @@ export function HelpMenu() {
         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition-colors cursor-pointer ${
           isOpen
             ? 'text-blue-500 dark:text-blue-400 bg-blue-500/10 border-blue-500/30'
-            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-800 border-gray-300 dark:border-gray-700'
+            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-800 border-gray-400 dark:border-gray-400'
         }`}
       >
         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

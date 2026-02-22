@@ -1,8 +1,12 @@
+import { useState, useCallback } from 'react'
 import type { DeviceDetailCard as DeviceDetailCardType } from '../../types/card'
 import { UpstreamConnection } from './UpstreamConnection'
+import type { FailedUplink } from './UpstreamConnection'
+import { useQueueStore } from '../../store/queueSlice'
 
 interface Props {
   data: DeviceDetailCardType['data']
+  title?: string
 }
 
 // Accent color based on device type
@@ -31,8 +35,21 @@ function iconForDeviceType(deviceType: string): string {
   }
 }
 
-export function DeviceDetailCard({ data }: Props) {
+export function DeviceDetailCard({ data, title }: Props) {
   const accent = accentForDeviceType(data.deviceType)
+  const addPrompt = useQueueStore((s) => s.addPrompt)
+  const [failedUplinks, setFailedUplinks] = useState<FailedUplink[]>([])
+
+  const handleFailedUplinks = useCallback((uplinks: FailedUplink[]) => {
+    setFailedUplinks(uplinks)
+  }, [])
+
+  const handleTroubleshoot = () => {
+    const name = title || data.serial
+    const ifaces = failedUplinks.map((u) => u.interface).join(', ')
+    const prompt = `Troubleshoot WAN uplink${failedUplinks.length > 1 ? 's' : ''} ${ifaces} on device ${name} (serial ${data.serial}) which ${failedUplinks.length > 1 ? 'are' : 'is'} currently "${failedUplinks[0]?.status}". Check uplink loss and latency, recent device events, and determine the likely cause and recommended remediation.`
+    addPrompt(prompt)
+  }
 
   const getMerakiUrl = () => {
     if (!data.networkId || !data.serial) return null
@@ -67,7 +84,12 @@ export function DeviceDetailCard({ data }: Props) {
       </div>
 
       {/* Upstream Connection (LLDP/CDP) */}
-      <UpstreamConnection serial={data.serial} />
+      <UpstreamConnection
+        serial={data.serial}
+        deviceType={data.deviceType}
+        deviceName={title}
+        onFailedUplinks={handleFailedUplinks}
+      />
 
       {/* Device Details */}
       {(data.firmware || data.lanIp || data.status) && (
@@ -139,33 +161,46 @@ export function DeviceDetailCard({ data }: Props) {
       )}
 
       {/* Action Buttons */}
-      <div className="flex gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
-        {getEventLogUrl() && (
-          <a
-            href={getEventLogUrl()!}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium ${accent.text} ${accent.bg} hover:opacity-80 border ${accent.border} rounded-md transition-colors`}
+      <div className="flex flex-col gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+        {failedUplinks.length > 0 && (
+          <button
+            onClick={handleTroubleshoot}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 border border-red-200 dark:border-red-500/20 rounded-md transition-colors cursor-pointer"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z" />
             </svg>
-            Event Log
-          </a>
+            Troubleshoot Uplink{failedUplinks.length > 1 ? 's' : ''}
+          </button>
         )}
-        {getMerakiUrl() && (
-          <a
-            href={getMerakiUrl()!}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md transition-colors"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-            </svg>
-            Dashboard
-          </a>
-        )}
+        <div className="flex gap-2">
+          {getEventLogUrl() && (
+            <a
+              href={getEventLogUrl()!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium ${accent.text} ${accent.bg} hover:opacity-80 border ${accent.border} rounded-md transition-colors`}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+              </svg>
+              Event Log
+            </a>
+          )}
+          {getMerakiUrl() && (
+            <a
+              href={getMerakiUrl()!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+              Dashboard
+            </a>
+          )}
+        </div>
       </div>
     </div>
   )

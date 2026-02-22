@@ -32,11 +32,11 @@ async def security_node(state: AgentState, writer: StreamWriter) -> dict:
     skills_text = load_skills_for_agent("security")
 
     llm = ChatAnthropic(
-        model=settings.model_name,
+        model=settings.security_model_name,
         api_key=settings.anthropic_api_key,
-        max_tokens=4096,
-        timeout=120,
-        max_retries=1,
+        max_tokens=2048,
+        timeout=60,
+        max_retries=2,
     )
 
     tools = build_langchain_tools("security")

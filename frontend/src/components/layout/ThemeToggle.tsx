@@ -19,7 +19,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={cycleTheme}
-      className="flex items-center gap-2.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-300 dark:border-gray-700/60 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
+      className="flex items-center gap-2.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800/50 border border-gray-400 dark:border-gray-400 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
       title={`Theme: ${mode}`}
     >
       {/* Icon */}

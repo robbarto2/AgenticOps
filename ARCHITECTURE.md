@@ -11,16 +11,17 @@ AgenticOps is an AI-powered network operations tool with a canvas-style UI. It u
                                     │        LangGraph Agent System           │
                                     │                                         │
 User ──WebSocket──> FastAPI ──────> │  Orchestrator Agent                     │
-                                    │    ├── Troubleshooting Agent ──┐        │
-                                    │    ├── Compliance Agent ───────┤        │
-                                    │    ├── Security Agent ─────────┤        │
-                                    │    ├── Discovery Agent ─────────┤──MCP──>│──> Meraki MCP (stdio)
-                                    │    ├── Topology Agent ──────────┤        │──> ThousandEyes MCP (SSE)
-                                    │    ├── Testing Agent ───────────┤        │
-                                    │    ├── Remediation Agent ───────┤        │
-                                    │    └── Canvas Agent ────────────┘        │
+                                    │    ├── Troubleshooting Agent ───┐       │
+                                    │    ├── Compliance Agent ────────┤       │
+                                    │    ├── Security Agent ──────────┤       │
+                                    │    ├── Discovery Agent ─────────┤──MCP─>│──> Meraki MCP (stdio)
+                                    │    ├── Topology Agent ──────────┤       │──> ThousandEyes MCP (SSE)
+                                    │    ├── Testing Agent ───────────┤       │
+                                    │    ├── Remediation Agent ───────┤       │
+                                    |    ├── Performance Agent ───────┤       |
+                                    │    └── Canvas Agent ────────────┘       │
                                     │                                         │
-                                    │  Skills Registry (SKILLS.md)            │
+                                    │  Skills Registry (SKILLS.md files)      │
                                     └─────────────────────────────────────────┘
                                          │
                                     Future: A2A ←→ External Agent Systems

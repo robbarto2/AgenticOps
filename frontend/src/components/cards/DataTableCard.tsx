@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useMemo, memo } from 'react'
 import type { DataTableCard as DataTableCardType } from '../../types/card'
 
 interface Props {
   data: DataTableCardType['data']
 }
 
-export function DataTableCard({ data }: Props) {
+export const DataTableCard = memo(function DataTableCard({ data }: Props) {
   const [sortCol, setSortCol] = useState<number | null>(null)
   const [sortAsc, setSortAsc] = useState(true)
 
@@ -18,15 +18,18 @@ export function DataTableCard({ data }: Props) {
     }
   }
 
-  const sortedRows = [...data.rows]
-  if (sortCol !== null) {
-    sortedRows.sort((a, b) => {
-      const av = a[sortCol] ?? ''
-      const bv = b[sortCol] ?? ''
-      const cmp = av.localeCompare(bv, undefined, { numeric: true })
-      return sortAsc ? cmp : -cmp
-    })
-  }
+  const sortedRows = useMemo(() => {
+    const rows = [...data.rows]
+    if (sortCol !== null) {
+      rows.sort((a, b) => {
+        const av = a[sortCol] ?? ''
+        const bv = b[sortCol] ?? ''
+        const cmp = av.localeCompare(bv, undefined, { numeric: true })
+        return sortAsc ? cmp : -cmp
+      })
+    }
+    return rows
+  }, [data.rows, sortCol, sortAsc])
 
   return (
     <div className="overflow-auto max-h-96">
@@ -71,4 +74,4 @@ export function DataTableCard({ data }: Props) {
       </table>
     </div>
   )
-}
+})

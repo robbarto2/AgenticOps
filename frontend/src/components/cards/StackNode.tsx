@@ -1,6 +1,7 @@
 import { memo, useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { NodeProps } from '@xyflow/react'
+import { useReactFlow } from '@xyflow/react'
 import { useCanvasStore } from '../../store/canvasSlice'
 import type { CardStack } from '../../store/canvasSlice'
 import type { CardCategory } from '../../utils/cardCategories'
@@ -73,9 +74,12 @@ function CategoryIcon({ category, color }: { category: CardCategory; color: stri
 interface StackPreviewProps {
   stack: CardStack
   anchorEl: HTMLElement
+  onMouseEnter: () => void
+  onMouseLeave: () => void
+  onUnstack: (cardId: string) => void
 }
 
-function StackPreview({ stack, anchorEl }: StackPreviewProps) {
+function StackPreview({ stack, anchorEl, onMouseEnter, onMouseLeave, onUnstack }: StackPreviewProps) {
   const cards = useCanvasStore((s) => s.cards)
   const stackCards = cards.filter((c) => stack.cardIds.includes(c.id))
   const [position, setPosition] = useState({ top: 0, left: 0 })
@@ -92,6 +96,8 @@ function StackPreview({ stack, anchorEl }: StackPreviewProps) {
     <div
       className="fixed z-[60] bg-white dark:bg-gray-900 border-2 border-gray-300 dark:border-gray-700 rounded-lg shadow-2xl max-w-md"
       style={{ top: position.top, left: position.left }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-2">
@@ -103,14 +109,28 @@ function StackPreview({ stack, anchorEl }: StackPreviewProps) {
         {stackCards.map((card) => (
           <div
             key={card.id}
-            className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+            className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 group"
           >
-            <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-              {card.title}
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                {card.title}
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {card.type.replace(/_/g, ' ')}
+              </div>
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              {card.type.replace(/_/g, ' ')}
-            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onUnstack(card.id)
+              }}
+              className="flex-shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-500/10 transition-all cursor-pointer"
+              title="Unstack this card"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+            </button>
           </div>
         ))}
       </div>
@@ -122,29 +142,41 @@ function StackPreview({ stack, anchorEl }: StackPreviewProps) {
 function StackNodeInner({ data }: NodeProps) {
   const stack = data as unknown as CardStack
   const toggleStack = useCanvasStore((s) => s.toggleStack)
+  const unstackCard = useCanvasStore((s) => s.unstackCard)
+  const { fitView } = useReactFlow()
   const count = stack.cardIds.length
   const [showPreview, setShowPreview] = useState(false)
   const nodeRef = useRef<HTMLDivElement>(null)
-  const hoverTimeoutRef = useRef<NodeJS.Timeout>()
+  const showTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
 
-  const handleMouseEnter = () => {
-    hoverTimeoutRef.current = setTimeout(() => {
-      setShowPreview(true)
-    }, 500) // 500ms delay before showing preview
+  const handleUnstack = (cardId: string) => {
+    unstackCard(stack.id, cardId)
+    setShowPreview(false)
+    setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
   }
 
-  const handleMouseLeave = () => {
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current)
+  const openPreview = () => {
+    if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current)
+    if (!showPreview) {
+      showTimeoutRef.current = setTimeout(() => setShowPreview(true), 400)
     }
-    setShowPreview(false)
+  }
+
+  const scheduleClose = () => {
+    if (showTimeoutRef.current) clearTimeout(showTimeoutRef.current)
+    hideTimeoutRef.current = setTimeout(() => setShowPreview(false), 200)
+  }
+
+  // Keep preview open when mouse enters popup
+  const cancelClose = () => {
+    if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current)
   }
 
   useEffect(() => {
     return () => {
-      if (hoverTimeoutRef.current) {
-        clearTimeout(hoverTimeoutRef.current)
-      }
+      if (showTimeoutRef.current) clearTimeout(showTimeoutRef.current)
+      if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current)
     }
   }, [])
 
@@ -153,8 +185,8 @@ function StackNodeInner({ data }: NodeProps) {
       ref={nodeRef}
       className="relative cursor-pointer select-none"
       onDoubleClick={() => toggleStack(stack.id)}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onMouseEnter={openPreview}
+      onMouseLeave={scheduleClose}
     >
       {/* Shadow layers for stacked effect */}
       <div
@@ -196,7 +228,13 @@ function StackNodeInner({ data }: NodeProps) {
 
       {/* Hover preview */}
       {showPreview && nodeRef.current && (
-        <StackPreview stack={stack} anchorEl={nodeRef.current} />
+        <StackPreview
+          stack={stack}
+          anchorEl={nodeRef.current}
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
+          onUnstack={handleUnstack}
+        />
       )}
     </div>
   )

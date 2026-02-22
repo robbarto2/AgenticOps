@@ -27,7 +27,7 @@ Your approach (EXECUTE IMMEDIATELY, DO NOT ASK FOR CLARIFICATION):
      - path: `/devices/{{serial}}/lldpCdp`
    - **IMPORTANT**: Call LLDP/CDP for ALL devices at once, not one at a time. This drastically reduces query time.
    - Skip devices without serial numbers.
-4. (Optional) For uplink info → `getOrganizationDevicesUplinksAddressesByDevice`
+4. **MANDATORY** — Call `getOrganizationApplianceUplinkStatuses` (no parameters needed) to get WAN uplink health (active/failed/not connected) for all MX appliances. This data is used to show failed links on the topology map.
 
 **Error Handling:**
 - If a device doesn't have a 'serial' field, skip LLDP/CDP lookup for that device

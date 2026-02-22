@@ -150,12 +150,14 @@ async def troubleshooting_node(state: AgentState, writer: StreamWriter) -> dict:
         start_str = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
         end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        for metric_id in ("WEB_AVAILABILITY", "WEB_TTFB", "NET_LATENCY", "NET_LOSS"):
-            emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "running"})
+        emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "running"})
+        metric_ids = ("WEB_AVAILABILITY", "WEB_TTFB", "NET_LATENCY", "NET_LOSS")
+
+        async def _fetch_metric(mid: str) -> tuple[str, dict | None]:
             try:
-                metrics_result = await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     mcp_manager.call_tool("get_network_app_synthetics_metrics", {
-                        "metric_id": metric_id,
+                        "metric_id": mid,
                         "start_date": start_str,
                         "end_date": end_str,
                         "aggregation_type": "MEAN",
@@ -163,14 +165,21 @@ async def troubleshooting_node(state: AgentState, writer: StreamWriter) -> dict:
                     }),
                     timeout=15,
                 )
+                return mid, result
+            except Exception as e:
+                logger.warning("Troubleshooting agent: %s fetch failed: %s", mid, e)
+                return mid, None
+
+        fetch_results = await asyncio.gather(*[_fetch_metric(m) for m in metric_ids])
+        for metric_id, metrics_result in fetch_results:
+            if metrics_result:
                 content = metrics_result.get("content", "")
                 is_error = "error" in metrics_result or (isinstance(content, str) and content.strip().lower().startswith("error"))
                 if not is_error and content:
                     tool_results.append({"tool": "get_network_app_synthetics_metrics", "args": {"metric_id": metric_id}, "result": content})
                     logger.info("Troubleshooting agent: fetched %s OK", metric_id)
-            except Exception as e:
-                logger.warning("Troubleshooting agent: %s fetch failed: %s", metric_id, e)
-            emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "complete"})
+
+        emit({"type": "tool_call", "tool": "get_network_app_synthetics_metrics", "source": "thousandeyes", "status": "complete"})
 
     # Extract interactive tables from ThousandEyes test data if present
     table_data = extract_test_table(tool_results)

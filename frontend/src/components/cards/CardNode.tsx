@@ -20,30 +20,30 @@ import { TopologyCard } from './TopologyCard'
 
 function cardAccentColor(type: string): string {
   switch (type) {
-    case 'network_detail':
-    case 'network_health':
-      return '#10b981' // emerald — network-level
-    case 'org_summary':
-      return '#8b5cf6' // purple — org-level
     case 'switch_detail':
       return '#3b82f6' // blue — switches
     case 'access_point_detail':
-      return '#22c55e' // green — wireless APs (brighter green than network)
+      return '#06b6d4' // cyan — wireless APs
     case 'device_detail':
       return '#f97316' // orange — generic devices (cameras, sensors, appliances, gateways)
+    case 'network_detail':
+    case 'network_health':
+      return '#10b981' // emerald — networks
+    case 'org_summary':
+      return '#facc15' // yellow — organizational overview
     case 'test_detail':
-      return '#06b6d4' // cyan — tests
+      return '#ec4899' // pink — ThousandEyes tests
     case 'topology':
-      return '#a855f7' // purple-500 — topology
+      return '#8b5cf6' // purple — topology maps
     case 'alert_summary':
-      return '#f59e0b' // amber — alerts
+      return '#ef4444' // red — alerts
     case 'bar_chart':
     case 'line_chart':
       return '#14b8a6' // teal — charts
     case 'data_table':
-      return '#6366f1' // indigo — tables
+      return '#6366f1' // indigo — data tables
     case 'text_report':
-      return '#64748b' // slate — reports
+      return '#94a3b8' // slate — text reports
     default:
       return '#6b7280' // gray
   }
@@ -72,9 +72,9 @@ function CardNodeInner({ data }: NodeProps) {
       case 'data_table':
         return <DataTableCard data={card.data} />
       case 'bar_chart':
-        return <BarChartCard data={card.data} />
+        return <BarChartCard data={card.data} title={card.title} source={card.source} />
       case 'line_chart':
-        return <LineChartCard data={card.data} />
+        return <LineChartCard data={card.data} title={card.title} source={card.source} />
       case 'alert_summary':
         return <AlertSummaryCard data={card.data} />
       case 'text_report':
@@ -90,7 +90,7 @@ function CardNodeInner({ data }: NodeProps) {
       case 'access_point_detail':
         return <AccessPointDetailCard data={card.data} />
       case 'device_detail':
-        return <DeviceDetailCard data={card.data} />
+        return <DeviceDetailCard data={card.data} title={card.title} />
       case 'test_detail':
         return <TestDetailCard card={card} />
       case 'topology':
@@ -137,19 +137,6 @@ function CardNodeInner({ data }: NodeProps) {
           <div className="p-3 card-content nodrag nopan nowheel select-text cursor-auto flex-1 overflow-auto min-h-0 flex flex-col">{renderContent()}</div>
         )}
 
-        {/* Custom resize handle icon in bottom-right corner */}
-        {!card.collapsed && (
-          <div
-            className="absolute bottom-1 right-1 w-8 h-8 flex items-center justify-center cursor-nwse-resize opacity-30 hover:opacity-80 transition-opacity z-10"
-            style={{ color: accent }}
-            title="Drag to resize"
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="drop-shadow">
-              {/* Three diagonal lines forming resize grip */}
-              <path d="M17 3L3 17M17 7L7 17M17 11L11 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-          </div>
-        )}
       </div>
       </div>
     </>

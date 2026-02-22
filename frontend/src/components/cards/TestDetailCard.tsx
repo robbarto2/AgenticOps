@@ -1,6 +1,37 @@
 import type { TestDetailCard as TestDetailCardType } from '../../types/card'
 import { useQueueStore } from '../../store/queueSlice'
 
+import type { TestAgent } from '../../types/card'
+
+function AgentLocations({ agents, agentCount }: { agents: TestAgent[]; agentCount: number }) {
+  const hasAgentDetails = agents.length > 0
+
+  return (
+    <div>
+      <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">
+        Agents ({agentCount})
+      </span>
+      {hasAgentDetails ? (
+        <ul className="mt-0.5 space-y-0.5">
+          {agents.map((agent) => (
+            <li key={agent.agentId} className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-200">
+              <svg className="w-3 h-3 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+              </svg>
+              <span className="truncate">{agent.agentName}{agent.location ? ` — ${agent.location}` : ''}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-gray-900 dark:text-gray-200 mt-0.5">
+          {agentCount} location{agentCount !== 1 ? 's' : ''}
+        </p>
+      )}
+    </div>
+  )
+}
+
 interface Props {
   card: TestDetailCardType
 }
@@ -114,18 +145,15 @@ export function TestDetailCard({ card }: Props) {
         <p className="text-xs text-gray-700 dark:text-gray-300 font-mono break-all mt-0.5">{data.target}</p>
       </div>
 
-      {/* Agents & Test ID */}
+      {/* Agents */}
       <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800">
-        <div className="grid grid-cols-2 gap-x-3">
-          <div>
-            <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Agents</span>
-            <p className="text-xs text-gray-900 dark:text-gray-200 mt-0.5">{agentCount} location{agentCount !== 1 ? 's' : ''}</p>
-          </div>
-          <div>
-            <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Test ID</span>
-            <p className="text-xs text-gray-700 dark:text-gray-300 font-mono mt-0.5">{data.testId}</p>
-          </div>
-        </div>
+        <AgentLocations agents={data.agents} agentCount={agentCount} />
+      </div>
+
+      {/* Test ID */}
+      <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800">
+        <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Test ID</span>
+        <p className="text-xs text-gray-700 dark:text-gray-300 font-mono mt-0.5">{data.testId}</p>
       </div>
 
       {/* Description */}

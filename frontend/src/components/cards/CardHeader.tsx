@@ -1,3 +1,5 @@
+import { useState, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { sourceColor, detectDeviceType } from '../../utils/formatters'
 import type { DeviceIconType } from '../../utils/formatters'
 
@@ -62,35 +64,73 @@ function DeviceIcon({ icon }: { icon: DeviceIconType }) {
 
 export function CardHeader({ title, source, collapsed, onCollapse, onClose }: Props) {
   const device = detectDeviceType(title)
+  const [bubblePos, setBubblePos] = useState<{ top: number; left: number } | null>(null)
+  const titleRef = useRef<HTMLDivElement>(null)
+
+  const handleMouseEnter = useCallback(() => {
+    if (!collapsed || !titleRef.current) return
+    const rect = titleRef.current.getBoundingClientRect()
+    setBubblePos({ top: rect.bottom + 8, left: rect.left })
+  }, [collapsed])
+
+  const handleMouseLeave = useCallback(() => {
+    setBubblePos(null)
+  }, [])
 
   return (
     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-300/50 dark:border-gray-700/50 bg-gray-100/50 dark:bg-gray-800/50 rounded-t-lg cursor-grab active:cursor-grabbing">
-      <div className="flex items-center gap-2.5 min-w-0">
+      <div
+        ref={titleRef}
+        className="flex items-center gap-2.5 min-w-0"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{title}</h3>
-        <span
-          className="text-xs px-2 py-0.5 rounded font-medium flex-shrink-0"
-          style={{
-            backgroundColor: `${sourceColor(source)}15`,
-            color: sourceColor(source),
-            border: `1px solid ${sourceColor(source)}30`,
-          }}
-        >
-          {source}
-        </span>
-        {device.icon && device.label && (
-          <span
-            className="flex items-center gap-1 text-xs px-2 py-0.5 rounded font-medium flex-shrink-0"
-            style={{
-              backgroundColor: `${deviceIconColor[device.icon]}15`,
-              color: deviceIconColor[device.icon],
-              border: `1px solid ${deviceIconColor[device.icon]}30`,
-            }}
-          >
-            <DeviceIcon icon={device.icon} />
-            {device.label}
-          </span>
+        {!collapsed && (
+          <>
+            <span
+              className="text-xs px-2 py-0.5 rounded font-medium flex-shrink-0"
+              style={{
+                backgroundColor: `${sourceColor(source)}15`,
+                color: sourceColor(source),
+                border: `1px solid ${sourceColor(source)}30`,
+              }}
+            >
+              {source}
+            </span>
+            {device.icon && device.label && (
+              <span
+                className="flex items-center gap-1 text-xs px-2 py-0.5 rounded font-medium flex-shrink-0"
+                style={{
+                  backgroundColor: `${deviceIconColor[device.icon]}15`,
+                  color: deviceIconColor[device.icon],
+                  border: `1px solid ${deviceIconColor[device.icon]}30`,
+                }}
+              >
+                <DeviceIcon icon={device.icon} />
+                {device.label}
+              </span>
+            )}
+          </>
         )}
       </div>
+
+      {/* Hover bubble for collapsed cards — portaled to body to escape overflow:hidden */}
+      {bubblePos && collapsed && createPortal(
+        <div
+          className="fixed z-[9999] pointer-events-none"
+          style={{ top: bubblePos.top, left: bubblePos.left }}
+        >
+          {/* Arrow */}
+          <div className="absolute -top-1.5 left-4 w-3 h-3 rotate-45 bg-white dark:bg-gray-800 border-t border-l border-gray-200 dark:border-gray-600" />
+          {/* Bubble */}
+          <div className="relative bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl px-3 py-2 whitespace-nowrap">
+            <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">{title}</p>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{source} · {device.label || 'Card'}</p>
+          </div>
+        </div>,
+        document.body
+      )}
 
       <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
         <button

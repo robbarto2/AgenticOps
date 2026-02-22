@@ -283,6 +283,7 @@ export interface TopologyLink {
   linkType?: 'wired' | 'wireless' | 'wan' | 'vpn'
   label?: string
   speed?: string
+  status?: string
 }
 
 export interface TopologyCard extends CardBase {

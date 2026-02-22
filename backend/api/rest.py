@@ -13,9 +13,11 @@ from api.models import (
     ChannelUtilization,
     ClientDetail,
     DeviceDetail,
+    DeviceUplinkStatus,
     EntityStatsResponse,
     HealthResponse,
     LldpCdpNeighbor,
+    OrgHealthResponse,
     ProblemDevice,
     SkillInfo,
     SkillsResponse,
@@ -54,6 +56,78 @@ async def get_skills() -> SkillsResponse:
         skills=[SkillInfo(**s) for s in skills],
         count=len(skills),
     )
+
+
+@router.get("/org/health", response_model=OrgHealthResponse)
+async def org_health() -> OrgHealthResponse:
+    """Live org health: device status counts + computed health score.
+
+    Makes a single MCP call (getOrganizationDevicesStatuses) with cache
+    bypass so the numbers are always fresh.  Designed for 15-second polling
+    from the OrgSummaryCard.
+    """
+    if not mcp_manager.meraki_connected:
+        raise HTTPException(status_code=503, detail="Meraki MCP not connected")
+
+    try:
+        result = await mcp_manager.call_tool(
+            "call_meraki_api",
+            {
+                "section": "organizations",
+                "method": "getOrganizationDevicesStatuses",
+                "parameters": {},
+            },
+            skip_cache=True,
+        )
+
+        if "error" in result:
+            raise HTTPException(status_code=502, detail=result["error"])
+
+        parsed = _parse_json(result.get("content", ""))
+        devices = _unwrap_list(parsed)
+        if devices is None:
+            raise HTTPException(status_code=502, detail="Could not parse device statuses")
+
+        online = offline = alerting = dormant = 0
+        for d in devices:
+            if not isinstance(d, dict):
+                continue
+            status = (d.get("status") or "").lower()
+            if status == "online":
+                online += 1
+            elif status == "offline":
+                offline += 1
+            elif status == "alerting":
+                alerting += 1
+            elif status == "dormant":
+                dormant += 1
+
+        total = online + offline + alerting + dormant
+        score = round(online / total * 100) if total > 0 else 0
+        if score >= 90:
+            health_status = "healthy"
+        elif score >= 70:
+            health_status = "warning"
+        else:
+            health_status = "critical"
+
+        from datetime import datetime, timezone
+
+        return OrgHealthResponse(
+            health_score=score,
+            health_status=health_status,
+            devices_online=online,
+            devices_offline=offline,
+            devices_alerting=alerting,
+            devices_dormant=dormant,
+            devices_total=total,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to fetch org health")
+        raise HTTPException(status_code=500, detail="Failed to fetch org health")
 
 
 @router.get("/entity/{entity_type}/{entity_id}/stats", response_model=EntityStatsResponse)
@@ -474,6 +548,60 @@ async def device_lldp_cdp(serial: str) -> list[LldpCdpNeighbor]:
         raise
     except Exception:
         logger.exception("Failed to fetch LLDP/CDP for %s", serial)
+        return []
+
+
+@router.get("/device/{serial}/uplink-statuses", response_model=list[DeviceUplinkStatus])
+async def device_uplink_statuses(serial: str) -> list[DeviceUplinkStatus]:
+    """Fetch WAN uplink statuses for an appliance or cellular gateway."""
+    if not mcp_manager.meraki_connected:
+        raise HTTPException(status_code=503, detail="Meraki MCP not connected")
+
+    try:
+        result = await mcp_manager.call_tool(
+            "call_meraki_api",
+            {
+                "section": "appliance",
+                "method": "getOrganizationApplianceUplinkStatuses",
+                "parameters": {"serials[]": [serial]},
+            },
+        )
+
+        if "error" in result:
+            logger.warning("Uplink statuses error for %s: %s", serial, result.get("error"))
+            return []
+
+        parsed = _parse_json(result.get("content", ""))
+        items = _unwrap_list(parsed)
+        if not items:
+            return []
+
+        statuses: list[DeviceUplinkStatus] = []
+        for device_entry in items:
+            if not isinstance(device_entry, dict):
+                continue
+            if device_entry.get("serial") != serial:
+                continue
+            for uplink in device_entry.get("uplinks", []):
+                if not isinstance(uplink, dict):
+                    continue
+                statuses.append(
+                    DeviceUplinkStatus(
+                        interface=uplink.get("interface", ""),
+                        status=uplink.get("status", "unknown"),
+                        ip=uplink.get("ip"),
+                        gateway=uplink.get("gateway"),
+                        publicIp=uplink.get("publicIp"),
+                        provider=uplink.get("provider"),
+                    )
+                )
+
+        logger.info("Uplink statuses for %s: %d uplinks", serial, len(statuses))
+        return statuses
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to fetch uplink statuses for %s", serial)
         return []
 
 

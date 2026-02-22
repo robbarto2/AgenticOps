@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, memo } from 'react'
 import type { TableData } from '../../types/chat'
 import { HoverPopup } from './HoverPopup'
 import { DevicePopup } from './DevicePopup'
@@ -43,7 +43,7 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-export function InteractiveTable({ tableData }: Props) {
+export const InteractiveTable = memo(function InteractiveTable({ tableData }: Props) {
   const [hoveredRowIdx, setHoveredRowIdx] = useState<number | null>(null)
   const [popupRowIdx, setPopupRowIdx] = useState<number | null>(null)
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
@@ -77,12 +77,20 @@ export function InteractiveTable({ tableData }: Props) {
         </svg>
         <span className="text-[11px] text-gray-500 dark:text-gray-400">Click a row for details</span>
 
-        {hasErrorRows && (
+        {(hasErrorRows || hasWarningRows) && (
           <div className="flex items-center gap-3 ml-auto">
-            <span className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-              <span className="w-3 h-[3px] rounded-full bg-red-500 dark:bg-red-400/80" />
-              {tableData.entity_type === 'test' ? 'Poor Performance' : 'Offline'}
-            </span>
+            {hasWarningRows && (
+              <span className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                <span className="w-3 h-[3px] rounded-full bg-amber-500 dark:bg-amber-400/80" />
+                Alerting
+              </span>
+            )}
+            {hasErrorRows && (
+              <span className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                <span className="w-3 h-[3px] rounded-full bg-red-500 dark:bg-red-400/80" />
+                {tableData.entity_type === 'test' ? 'Poor Performance' : 'Offline'}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -118,16 +126,27 @@ export function InteractiveTable({ tableData }: Props) {
           {tableData.rows.map((row, idx) => {
             const statusType = row.status_type || 'normal'
             const isError = statusType === 'error'
+            const isWarning = statusType === 'warning'
             const getRowBackground = () => {
-              const errorBg = isError ? 'bg-red-50 dark:bg-red-950/60 border-l-[3px] border-l-red-500 dark:border-l-red-400' : ''
+              const borderAccent = isError
+                ? 'border-l-[3px] border-l-red-500 dark:border-l-red-400'
+                : isWarning
+                  ? 'border-l-[3px] border-l-amber-500 dark:border-l-amber-400'
+                  : ''
 
               if (popupRowIdx === idx) {
-                return `bg-blue-500/10 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)] ${isError ? 'border-l-[3px] border-l-red-500 dark:border-l-red-400' : ''}`
+                return `bg-blue-500/10 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)] ${borderAccent}`
               }
               if (hoveredRowIdx === idx) {
-                return `bg-gray-100/80 dark:bg-gray-700/30 ${isError ? 'border-l-[3px] border-l-red-500 dark:border-l-red-400' : ''}`
+                return `bg-gray-100/80 dark:bg-gray-700/30 ${borderAccent}`
               }
-              return errorBg
+              if (isError) {
+                return 'bg-red-100 dark:bg-red-500/15 border-l-[3px] border-l-red-500 dark:border-l-red-400'
+              }
+              if (isWarning) {
+                return 'bg-amber-50 dark:bg-amber-900/15 border-l-[3px] border-l-amber-500 dark:border-l-amber-400'
+              }
+              return ''
             }
 
             return (
@@ -187,4 +206,4 @@ export function InteractiveTable({ tableData }: Props) {
       )}
     </>
   )
-}
+})

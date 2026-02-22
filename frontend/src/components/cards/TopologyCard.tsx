@@ -1,4 +1,5 @@
-import { useMemo, useState, useRef, useCallback } from 'react'
+import { useMemo, useState, useRef, useCallback, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import dagre from 'dagre'
 import type { TopologyCard as TopologyCardType, TopologyDeviceType, TopologyNode, TopologyLink } from '../../types/card'
 import { useThemeStore } from '../../store/themeSlice'
@@ -108,7 +109,17 @@ function statusColor(status?: string): string {
   }
 }
 
-function linkStyle(linkType?: string): { stroke: string; dasharray: string; width: number } {
+function linkStyle(linkType?: string, status?: string): { stroke: string; dasharray: string; width: number } {
+  // For WAN links, override style based on uplink status
+  if (linkType === 'wan' && status) {
+    const s = status.toLowerCase()
+    if (s === 'failed') {
+      return { stroke: '#ef4444', dasharray: '', width: 3 }
+    }
+    if (s === 'not connected') {
+      return { stroke: '#9ca3af', dasharray: '6 3', width: 2 }
+    }
+  }
   switch (linkType) {
     case 'wireless':
       return { stroke: '#3b82f6', dasharray: '8 4', width: 2 }
@@ -133,6 +144,7 @@ interface LayoutLink {
   source: LayoutNode
   target: LayoutNode
   link: TopologyLink
+  offset: number  // perpendicular offset for parallel links (0 if only one link)
 }
 
 export function TopologyCard({ data }: Props) {
@@ -143,6 +155,7 @@ export function TopologyCard({ data }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState({ x: 0, y: 0 })
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const { layoutNodes, layoutLinks, width, height, hasInternet } = useMemo(() => {
     // Check if we have any MX devices
@@ -174,12 +187,23 @@ export function TopologyCard({ data }: Props) {
       }
     }
 
+    // Normalize Internet links so Internet is always the source (top in TB layout)
+    const internetIds = new Set(nodes.filter((n) => n.deviceType === 'internet').map((n) => n.id))
+    const normalizedLinks = links.map((link) => {
+      if (internetIds.has(link.target) && !internetIds.has(link.source)) {
+        return { ...link, source: link.target, target: link.source }
+      }
+      return link
+    })
+
     // Deduplicate links (LLDP/CDP reports both directions)
+    // Include label in key so multiple WAN interfaces (wan1, wan2) aren't collapsed
     const seenLinks = new Set<string>()
     const dedupedLinks: TopologyLink[] = []
-    for (const link of links) {
-      const key1 = `${link.source}::${link.target}`
-      const key2 = `${link.target}::${link.source}`
+    for (const link of normalizedLinks) {
+      const suffix = link.label ? `::${link.label}` : ''
+      const key1 = `${link.source}::${link.target}${suffix}`
+      const key2 = `${link.target}::${link.source}${suffix}`
       if (!seenLinks.has(key1) && !seenLinks.has(key2)) {
         seenLinks.add(key1)
         dedupedLinks.push(link)
@@ -220,12 +244,29 @@ export function TopologyCard({ data }: Props) {
     }
 
     const layoutNodeMap = new Map<string, LayoutNode>(layoutNodes.map((n) => [n.id, n]))
-    const layoutLinks: LayoutLink[] = []
+
+    // Group links by node pair to compute perpendicular offsets for parallel links
+    const pairGroups = new Map<string, TopologyLink[]>()
     for (const link of dedupedLinks) {
-      const s = layoutNodeMap.get(link.source)
-      const t = layoutNodeMap.get(link.target)
-      if (s && t) {
-        layoutLinks.push({ source: s, target: t, link })
+      const pairKey = [link.source, link.target].sort().join('::')
+      const group = pairGroups.get(pairKey)
+      if (group) group.push(link)
+      else pairGroups.set(pairKey, [link])
+    }
+
+    const layoutLinks: LayoutLink[] = []
+    const PARALLEL_GAP = 55  // px between parallel links (enough for label boxes)
+    for (const group of pairGroups.values()) {
+      const count = group.length
+      for (let idx = 0; idx < count; idx++) {
+        const link = group[idx]
+        const s = layoutNodeMap.get(link.source)
+        const t = layoutNodeMap.get(link.target)
+        if (s && t) {
+          // Center offsets: e.g. 3 links → [-20, 0, 20]
+          const offset = count > 1 ? (idx - (count - 1) / 2) * PARALLEL_GAP : 0
+          layoutLinks.push({ source: s, target: t, link, offset })
+        }
       }
     }
 
@@ -238,8 +279,9 @@ export function TopologyCard({ data }: Props) {
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
-    const delta = e.deltaY > 0 ? 0.9 : 1.1
-    setZoom((z) => Math.max(0.3, Math.min(3, z * delta)))
+    const delta = e.deltaY > 0 ? 0.97 : 1.03
+    setZoom((z) => Math.max(0.1, Math.min(5, z * delta))
+    )
   }, [])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -263,32 +305,37 @@ export function TopologyCard({ data }: Props) {
   }, [])
 
   const autoFit = useCallback(() => {
-    if (!svgRef.current) return
-
-    const container = svgRef.current.parentElement
-    if (!container) return
-
-    const containerWidth = container.clientWidth
-    const containerHeight = container.clientHeight
-
-    // Calculate zoom to fit content
-    const zoomX = containerWidth / width
-    const zoomY = containerHeight / height
-    const newZoom = Math.min(zoomX, zoomY) * 0.9 // 90% to add padding
-
-    setZoom(Math.max(0.3, Math.min(3, newZoom)))
+    // The SVG viewBox already handles content-to-container fitting
+    // (preserveAspectRatio="xMidYMid meet" is the default).
+    // Just reset zoom and pan to show the full topology.
+    setZoom(1)
     setPan({ x: 0, y: 0 })
-  }, [width, height])
+  }, [])
+
+  // Close fullscreen on Escape
+  useEffect(() => {
+    if (!isFullscreen) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false) }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [isFullscreen])
+
+  // Auto-fit when entering fullscreen (after portal renders)
+  useEffect(() => {
+    if (isFullscreen) {
+      requestAnimationFrame(() => autoFit())
+    }
+  }, [isFullscreen, autoFit])
 
   const textColor = isDark ? '#e5e7eb' : '#1f2937'
   const subtextColor = isDark ? '#9ca3af' : '#6b7280'
   const nodeBg = isDark ? '#1f2937' : '#ffffff'
   const nodeBorder = isDark ? '#374151' : '#e5e7eb'
 
-  return (
-    <div className="w-full h-full flex flex-col" style={{ minHeight: 400 }}>
+  const content = (
+    <div className={isFullscreen ? 'fixed inset-0 z-[100] flex flex-col bg-gray-50 dark:bg-gray-950' : 'w-full h-full flex flex-col'} style={isFullscreen ? undefined : { minHeight: 400 }}>
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         <div className="flex items-center gap-3 text-xs" style={{ color: subtextColor }}>
           <span className="flex items-center gap-1.5">
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#6b7280" strokeWidth="2" /></svg>
@@ -306,15 +353,46 @@ export function TopologyCard({ data }: Props) {
             <svg width="24" height="12"><line x1="0" y1="6" x2="24" y2="6" stroke="#10b981" strokeWidth="2" strokeDasharray="4 4" /></svg>
             <span className="font-medium">VPN</span>
           </span>
+          <span className="flex items-center gap-1.5">
+            <svg width="24" height="12">
+              <line x1="0" y1="6" x2="24" y2="6" stroke="#ef4444" strokeWidth="3" />
+              <circle cx="12" cy="6" r="4" fill="#ef4444" />
+              <text x="12" y="9" textAnchor="middle" fontSize="7" fontWeight="700" fill="#fff">✕</text>
+            </svg>
+            <span className="font-medium">Failed</span>
+          </span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={autoFit}
+            className="px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            style={{ color: textColor }}
+            title="Fit topology to view"
+          >
+            Fit
+          </button>
           <button
             onClick={resetView}
             className="px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
             style={{ color: textColor }}
             title="Reset to 100% zoom"
           >
-            Reset View
+            Reset
+          </button>
+          <button
+            onClick={() => setIsFullscreen((f) => !f)}
+            className="px-2 py-1 text-xs font-medium rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition-colors"
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            {isFullscreen ? (
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" />
+              </svg>
+            ) : (
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+              </svg>
+            )}
           </button>
           <span className="text-xs font-mono" style={{ color: subtextColor }}>
             {(zoom * 100).toFixed(0)}%
@@ -345,51 +423,98 @@ export function TopologyCard({ data }: Props) {
         >
           {/* Links */}
           {layoutLinks.map((l, i) => {
-            const style = linkStyle(l.link.linkType)
-            const midX = (l.source.x + l.target.x) / 2
-            const midY = (l.source.y + l.target.y) / 2
+            const style = linkStyle(l.link.linkType, l.link.status)
+            const isFailed = l.link.status?.toLowerCase() === 'failed'
+            const isNotConnected = l.link.status?.toLowerCase() === 'not connected'
 
-            // Calculate angle for label rotation to reduce overlap
+            // Compute perpendicular offset for parallel links
             const dx = l.target.x - l.source.x
             const dy = l.target.y - l.source.y
-            const angle = Math.atan2(dy, dx) * (180 / Math.PI)
+            const len = Math.sqrt(dx * dx + dy * dy) || 1
+            // Normal vector (perpendicular)
+            const nx = -dy / len
+            const ny = dx / len
+            const ox = nx * l.offset
+            const oy = ny * l.offset
+
+            const x1 = l.source.x + ox
+            const y1 = l.source.y + oy
+            const x2 = l.target.x + ox
+            const y2 = l.target.y + oy
+            const midX = (x1 + x2) / 2
+            const midY = (y1 + y2) / 2
 
             return (
               <g key={`link-${i}`}>
                 <line
-                  x1={l.source.x}
-                  y1={l.source.y}
-                  x2={l.target.x}
-                  y2={l.target.y}
+                  x1={x1} y1={y1} x2={x2} y2={y2}
                   stroke={style.stroke}
                   strokeWidth={style.width}
                   strokeDasharray={style.dasharray || undefined}
-                  opacity={0.6}
+                  opacity={isFailed ? 0.85 : 0.6}
                 />
-                {l.link.label && (
-                  <g>
-                    {/* Background box for label to prevent overlap */}
-                    <rect
-                      x={midX - (l.link.label.length * 3.5)}
-                      y={midY - 14}
-                      width={l.link.label.length * 7}
-                      height={16}
-                      fill={isDark ? '#1f2937' : '#ffffff'}
-                      opacity={0.9}
-                      rx={3}
-                    />
-                    <text
-                      x={midX}
-                      y={midY - 4}
-                      textAnchor="middle"
-                      fontSize={9}
-                      fontWeight={500}
-                      fill={subtextColor}
-                    >
-                      {l.link.label}
-                    </text>
+                {/* Failed link icon */}
+                {isFailed && (
+                  <g transform={`translate(${midX}, ${midY - 18})`}>
+                    <circle r={8} fill="#ef4444" opacity={0.9} />
+                    <text textAnchor="middle" y={4} fontSize={11} fontWeight={700} fill="#fff">✕</text>
                   </g>
                 )}
+                {(l.link.label || l.link.speed) && (() => {
+                  const labelText = l.link.label || ''
+                  const speedText = l.link.speed || ''
+                  const hasTwo = !!(labelText && speedText)
+                  const longestLen = Math.max(labelText.length, speedText.length)
+                  const boxW = Math.max(longestLen * 6.5 + 10, 40)
+                  const boxH = hasTwo ? 28 : 16
+
+                  // Color the status text based on uplink state
+                  const speedColor = isFailed
+                    ? '#ef4444'
+                    : isNotConnected
+                      ? '#9ca3af'
+                      : l.link.status?.toLowerCase() === 'active'
+                        ? '#10b981'
+                        : isDark ? '#60a5fa' : '#3b82f6'
+
+                  return (
+                    <g>
+                      <rect
+                        x={midX - boxW / 2}
+                        y={midY - boxH / 2 - 2}
+                        width={boxW}
+                        height={boxH}
+                        fill={isDark ? '#1f2937' : '#ffffff'}
+                        opacity={0.9}
+                        rx={3}
+                      />
+                      {labelText && (
+                        <text
+                          x={midX}
+                          y={hasTwo ? midY - 5 : midY + 2}
+                          textAnchor="middle"
+                          fontSize={9}
+                          fontWeight={500}
+                          fill={subtextColor}
+                        >
+                          {labelText}
+                        </text>
+                      )}
+                      {speedText && (
+                        <text
+                          x={midX}
+                          y={hasTwo ? midY + 8 : midY + 2}
+                          textAnchor="middle"
+                          fontSize={8}
+                          fontWeight={600}
+                          fill={speedColor}
+                        >
+                          {speedText}
+                        </text>
+                      )}
+                    </g>
+                  )
+                })()}
               </g>
             )
           })}
@@ -523,9 +648,45 @@ export function TopologyCard({ data }: Props) {
           const halfW = (NODE_WIDTH / 2) * ctm.a
           const halfH = (NODE_HEIGHT / 2) * ctm.d
 
+          // Find connections for this node with direction info
+          const connections = layoutLinks.filter(
+            (l) => l.source.id === hoveredNode || l.target.id === hoveredNode
+          ).map((l) => {
+            const isSource = l.source.id === hoveredNode
+            const peer = isSource ? l.target : l.source
+            const linkType = l.link.linkType || 'wired'
+
+            // Determine direction: peer with lower Y (higher on screen) = upstream
+            let direction: 'upstream' | 'downstream' | 'wan'
+            if (linkType === 'wan') {
+              direction = 'wan'
+            } else if (peer.y < ln.y) {
+              direction = 'upstream'
+            } else if (peer.y > ln.y) {
+              direction = 'downstream'
+            } else {
+              // Same row — use dagre source/target as hint
+              direction = isSource ? 'downstream' : 'upstream'
+            }
+
+            return {
+              peerName: peer.node.label,
+              port: l.link.label || '',
+              speed: l.link.speed || '',
+              linkType,
+              direction,
+              status: l.link.status || '',
+            }
+          })
+          // Sort: upstream first, then WAN, then downstream
+          const dirOrder = { upstream: 0, wan: 1, downstream: 2 }
+          connections.sort((a, b) => dirOrder[a.direction] - dirOrder[b.direction])
+
           // Tooltip dimensions (approximate)
           const tooltipWidth = 220
-          const tooltipHeight = ln.node.serial ? 120 : 100
+          const baseHeight = ln.node.serial ? 120 : 100
+          const connHeight = connections.length > 0 ? 16 + connections.length * 52 : 0
+          const tooltipHeight = baseHeight + connHeight
 
           const cw = containerRect.width
           const ch = containerRect.height
@@ -558,7 +719,7 @@ export function TopologyCard({ data }: Props) {
                 top: `${top}px`,
               }}
             >
-              <div className="bg-gray-900 dark:bg-gray-800 text-white rounded-lg shadow-2xl p-3 min-w-[200px] max-w-[220px] border border-gray-700">
+              <div className="bg-gray-900 dark:bg-gray-800 text-white rounded-lg shadow-2xl p-3 min-w-[200px] max-w-[240px] border border-gray-700">
                 <div className="font-semibold text-sm mb-2 break-words">{ln.node.label}</div>
                 <div className="space-y-1 text-xs text-gray-300">
                   {ln.node.model && (
@@ -582,6 +743,44 @@ export function TopologyCard({ data }: Props) {
                       <span className="capitalize">{ln.node.status}</span>
                     </div>
                   )}
+                  {connections.length > 0 && (
+                    <div className="pt-1 mt-1 border-t border-gray-700 space-y-1.5">
+                      {connections.map((conn, i) => {
+                        const dirLabel =
+                          conn.direction === 'wan' ? 'WAN' :
+                          conn.direction === 'upstream' ? 'Upstream' :
+                          'Downstream'
+                        const dirColor =
+                          conn.direction === 'wan' ? 'text-purple-400' :
+                          conn.direction === 'upstream' ? 'text-amber-400' :
+                          'text-cyan-400'
+                        return (
+                          <div key={i}>
+                            <div className="flex items-center gap-1">
+                              <span className={`${dirColor} font-medium`} style={{ fontSize: '10px' }}>
+                                {conn.direction === 'upstream' ? '▲' : conn.direction === 'downstream' ? '▼' : '◆'} {dirLabel}
+                              </span>
+                              {conn.speed && (
+                                <span className="font-medium" style={{
+                                  fontSize: '10px',
+                                  color: conn.status?.toLowerCase() === 'failed' ? '#ef4444'
+                                    : conn.status?.toLowerCase() === 'not connected' ? '#9ca3af'
+                                    : conn.status?.toLowerCase() === 'active' ? '#10b981'
+                                    : '#60a5fa',
+                                }}>({conn.speed})</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 pl-2.5">
+                              <span className="text-gray-200 truncate text-xs">{conn.peerName}</span>
+                            </div>
+                            {conn.port && (
+                              <div className="text-gray-500 font-mono pl-2.5" style={{ fontSize: '10px' }}>{conn.port}</div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -590,4 +789,6 @@ export function TopologyCard({ data }: Props) {
       </div>
     </div>
   )
+
+  return isFullscreen ? createPortal(content, document.body) : content
 }

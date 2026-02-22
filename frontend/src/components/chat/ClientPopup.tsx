@@ -85,7 +85,7 @@ export function ClientPopup({ metadata, clientName, onClose }: Props) {
       <div className="absolute inset-0 bg-black/40" />
       <div
         ref={popupRef}
-        className="relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl"
+        className="relative bg-white dark:bg-gray-900 border-2 border-gray-300 dark:border-gray-400 rounded-lg shadow-2xl"
         style={{ width: popupWidth, maxHeight: '80vh', overflow: 'auto' }}
       >
         {/* Header */}

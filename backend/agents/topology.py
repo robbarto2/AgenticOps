@@ -15,6 +15,7 @@ from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, nee
 from agents.table_extractor import extract_topology_card
 from agents.tools import build_langchain_tools
 from config import settings
+from mcp_client.manager import mcp_manager
 from prompts import load_prompt
 from skills.loader import load_skills_for_agent
 
@@ -77,50 +78,32 @@ async def topology_node(state: AgentState, writer: StreamWriter) -> dict:
             # No more tool calls - final response complete
             break
 
-        for tool_call in response.tool_calls:
-            tool_name = tool_call["name"]
-            tool_args = tool_call["args"]
+        # Execute tool calls in parallel when multiple are returned (big speedup for LLDP/CDP)
+        tool_map = {t.name: t for t in tools}
+        pending_calls = response.tool_calls
 
-            source = "meraki"
-            if tool_name.startswith("te_") or "thousandeyes" in tool_name.lower():
-                source = "thousandeyes"
+        # Emit all "running" events upfront
+        for tc in pending_calls:
+            source = "thousandeyes" if tc["name"].startswith("te_") or "thousandeyes" in tc["name"].lower() else "meraki"
+            emit({"type": "tool_call", "tool": tc["name"], "source": source, "status": "running"})
 
-            # Stream tool_call event in real-time via StreamWriter
-            emit({
-                "type": "tool_call",
-                "tool": tool_name,
-                "source": source,
-                "status": "running",
-            })
-
-            matching_tools = [t for t in tools if t.name == tool_name]
-            if matching_tools:
+        async def _exec_tool(tc):
+            tool_obj = tool_map.get(tc["name"])
+            if tool_obj:
                 try:
-                    result = await asyncio.wait_for(
-                        matching_tools[0].ainvoke(tool_args),
-                        timeout=TOOL_CALL_TIMEOUT_SEC
-                    )
+                    return await asyncio.wait_for(tool_obj.ainvoke(tc["args"]), timeout=TOOL_CALL_TIMEOUT_SEC)
                 except asyncio.TimeoutError:
-                    logger.error("Tool call timeout: %s(%s) exceeded %d seconds", tool_name, tool_args, TOOL_CALL_TIMEOUT_SEC)
-                    result = f"Error: Tool call timed out after {TOOL_CALL_TIMEOUT_SEC} seconds"
-            else:
-                result = f"Tool {tool_name} not found"
+                    logger.error("Tool call timeout: %s exceeded %ds", tc["name"], TOOL_CALL_TIMEOUT_SEC)
+                    return f"Error: Tool call timed out after {TOOL_CALL_TIMEOUT_SEC} seconds"
+            return f"Tool {tc['name']} not found"
 
-            tool_results.append({
-                "tool": tool_name,
-                "args": tool_args,
-                "result": result,
-            })
+        results = await asyncio.gather(*[_exec_tool(tc) for tc in pending_calls])
 
-            # Stream tool completion in real-time
-            emit({
-                "type": "tool_call",
-                "tool": tool_name,
-                "source": source,
-                "status": "complete",
-            })
-
-            messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
+        for tc, result in zip(pending_calls, results):
+            source = "thousandeyes" if tc["name"].startswith("te_") or "thousandeyes" in tc["name"].lower() else "meraki"
+            tool_results.append({"tool": tc["name"], "args": tc["args"], "result": result})
+            emit({"type": "tool_call", "tool": tc["name"], "source": source, "status": "complete"})
+            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
 
     # If the response is incomplete (exhausted iterations, truncated, or empty),
     # do one more LLM call WITHOUT tools to force a proper summary.
@@ -133,10 +116,53 @@ async def topology_node(state: AgentState, writer: StreamWriter) -> dict:
             response = AIMessage(content="I was unable to complete the analysis in time. Please try again with a more specific query.")
         messages.append(response)
 
+    # Programmatically fetch uplink statuses if the agent didn't already
+    _uplink_names = {"getorganizationapplianceuplinkstatuses"}
+    has_uplink_data = any(
+        r.get("tool", "").lower().rstrip() in _uplink_names
+        or (r.get("tool") == "call_meraki_api" and r.get("args", {}).get("method", "").lower() in _uplink_names)
+        for r in tool_results
+    )
+    if not has_uplink_data:
+        emit({"type": "tool_call", "tool": "getOrganizationApplianceUplinkStatuses", "source": "meraki", "status": "running"})
+        try:
+            uplink_result = await asyncio.wait_for(
+                mcp_manager.call_tool("call_meraki_api", {
+                    "section": "appliance",
+                    "method": "getOrganizationApplianceUplinkStatuses",
+                    "parameters": {},
+                }),
+                timeout=20,
+            )
+            if "error" not in uplink_result:
+                content = uplink_result.get("content", "")
+                logger.info("Topology agent: uplink statuses fetch OK (%d chars)", len(content))
+                tool_results.append({
+                    "tool": "call_meraki_api",
+                    "args": {"method": "getOrganizationApplianceUplinkStatuses"},
+                    "result": content,
+                })
+            else:
+                logger.warning("Topology agent: uplink statuses error: %s", uplink_result.get("error"))
+        except asyncio.TimeoutError:
+            logger.warning("Topology agent: uplink statuses timed out")
+        except Exception as e:
+            logger.warning("Topology agent: uplink statuses failed: %s", e)
+        emit({"type": "tool_call", "tool": "getOrganizationApplianceUplinkStatuses", "source": "meraki", "status": "complete"})
+
     # Build topology card programmatically from raw tool results
     topology_card = extract_topology_card(tool_results)
     if topology_card:
-        logger.info("Topology agent built card with %d nodes", len(topology_card["data"]["nodes"]))
+        n_nodes = len(topology_card["data"]["nodes"])
+        n_links = len(topology_card["data"]["links"])
+        net_name = topology_card["data"].get("networkName", "")
+        logger.info("Topology agent built card with %d nodes", n_nodes)
+        # Replace LLM response with clean summary (LLM often dumps raw JSON)
+        summary = f"Discovered **{n_nodes} devices** and **{n_links} connections**"
+        if net_name:
+            summary += f" in **{net_name}**"
+        summary += "."
+        response = AIMessage(content=summary, id=response.id if response else "topology-summary")
 
     # Advance plan step for multi-agent routing
     plan_step = state.get("plan_step", 0)

@@ -97,6 +97,30 @@ class LldpCdpNeighbor(BaseModel):
     protocol: str  # "lldp", "cdp", or "both"
 
 
+class DeviceUplinkStatus(BaseModel):
+    """Uplink status for a device WAN interface."""
+
+    interface: str
+    status: str  # "active", "ready", "failed", "not connected"
+    ip: str | None = None
+    gateway: str | None = None
+    publicIp: str | None = None
+    provider: str | None = None
+
+
+class OrgHealthResponse(BaseModel):
+    """Live org health data for polling."""
+
+    health_score: int          # 0-100
+    health_status: str         # 'healthy' | 'warning' | 'critical'
+    devices_online: int
+    devices_offline: int
+    devices_alerting: int
+    devices_dormant: int
+    devices_total: int
+    timestamp: str             # ISO 8601
+
+
 class WebSocketMessage(BaseModel):
     """Incoming WebSocket message from client."""
 

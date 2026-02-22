@@ -1047,8 +1047,12 @@ def _extract_test_metrics_map(tool_results: list[dict]) -> dict[str, dict]:
     return metrics_map
 
 
-def extract_test_table(tool_results: list[dict]) -> list[dict]:
+def extract_test_table(tool_results: list[dict], *, active_only: bool = False) -> list[dict]:
     """Find ThousandEyes test listing results and build structured table data.
+
+    Args:
+        tool_results: List of tool result dicts from the agent loop.
+        active_only: If True, only include tests where enabled=True.
 
     Returns a list of table_data dicts suitable for sending as WebSocket events.
     """
@@ -1099,6 +1103,10 @@ def extract_test_table(tool_results: list[dict]) -> list[dict]:
             target = test.get("url") or test.get("server") or test.get("domain") or test.get("target", "")
             enabled = test.get("enabled", True)
             interval = test.get("interval", 0)
+
+            # Skip disabled tests when active_only is requested
+            if active_only and not enabled:
+                continue
 
             # Get agent count
             agents = test.get("agents") or test.get("agentIds") or []
@@ -1634,12 +1642,43 @@ def extract_topology_card(tool_results: list[dict]) -> dict | None:
                 continue
             seen_links.add(link_key)
 
-            links.append({
+            # Extract remote port and speed from LLDP/CDP neighbor data
+            lldp_data = port_data.get("lldp") or {}
+            cdp_data = port_data.get("cdp") or {}
+            remote_port = (
+                lldp_data.get("portId", "")
+                or cdp_data.get("portId", "")
+                or ""
+            )
+
+            # Build label showing local → remote port
+            if remote_port and remote_port != port_id:
+                label = f"{port_id} → {remote_port}"
+            else:
+                label = port_id
+
+            # Try to extract speed from portDescription or systemCapabilities
+            speed = ""
+            port_desc = lldp_data.get("portDescription", "")
+            if port_desc:
+                # portDescription often contains speed, e.g. "GigabitEthernet0/1"
+                desc_lower = port_desc.lower()
+                if "10-gig" in desc_lower or "tengig" in desc_lower or "10gbase" in desc_lower:
+                    speed = "10 Gbps"
+                elif "gigabit" in desc_lower or "1gbase" in desc_lower:
+                    speed = "1 Gbps"
+                elif "fast" in desc_lower or "100base" in desc_lower:
+                    speed = "100 Mbps"
+
+            link_entry: dict = {
                 "source": source_serial,
                 "target": neighbor_serial,
                 "linkType": "wired",
-                "label": port_id,
-            })
+                "label": label,
+            }
+            if speed:
+                link_entry["speed"] = speed
+            links.append(link_entry)
 
     logger.info(
         "extract_topology_card: built %d links from LLDP/CDP data", len(links)
@@ -1674,7 +1713,7 @@ def extract_topology_card(tool_results: list[dict]) -> dict | None:
             for other in other_nodes:
                 links.append({"source": center, "target": other["id"], "linkType": "wired"})
 
-    # 7. Add internet node for MX/gateway devices
+    # 7. Add internet node for MX/gateway devices (with per-interface uplink status)
     mx_serials = [n["id"] for n in nodes if n["deviceType"] == "mx"]
     if mx_serials:
         nodes.append({
@@ -1683,13 +1722,80 @@ def extract_topology_card(tool_results: list[dict]) -> dict | None:
             "deviceType": "internet",
             "status": "online",
         })
+
+        # Build serial → [{interface, status}] map from uplink status data
+        uplink_status_map: dict[str, list[dict]] = {}
+        for result in tool_results:
+            if not _is_uplink_result(result):
+                continue
+            raw = result.get("result", "")
+            parsed = _parse_result(raw)
+            if parsed is None:
+                continue
+            # Handle wrapped/truncated responses
+            if isinstance(parsed, dict):
+                if parsed.get("_response_truncated") and parsed.get("_full_response_cached"):
+                    full_data = _read_cached_file(parsed["_full_response_cached"])
+                    if full_data is not None:
+                        parsed = full_data
+                    else:
+                        parsed = parsed.get("_preview") or []
+                else:
+                    sample = (parsed.get("data") or parsed.get("results")
+                              or parsed.get("_preview") or parsed.get("_sample"))
+                    if isinstance(sample, list):
+                        parsed = sample
+                    else:
+                        continue
+            if not isinstance(parsed, list):
+                continue
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                serial = item.get("serial", "")
+                if not serial:
+                    continue
+                uplinks = item.get("uplinks", [])
+                if not isinstance(uplinks, list):
+                    continue
+                for uplink in uplinks:
+                    if not isinstance(uplink, dict):
+                        continue
+                    iface = uplink.get("interface", "")
+                    status = uplink.get("status", "")
+                    if iface:
+                        uplink_status_map.setdefault(serial, []).append({
+                            "interface": iface,
+                            "status": status,
+                        })
+
+        logger.info(
+            "extract_topology_card: uplink_status_map has %d serials: %s",
+            len(uplink_status_map),
+            {s: [(u["interface"], u["status"]) for u in ul] for s, ul in uplink_status_map.items()},
+        )
+
+        # Create WAN links — per-interface if uplink data available, generic otherwise
         for mx_serial in mx_serials:
-            links.append({
-                "source": mx_serial,
-                "target": "internet",
-                "linkType": "wan",
-                "label": "WAN",
-            })
+            uplinks = uplink_status_map.get(mx_serial)
+            if uplinks:
+                for ul in uplinks:
+                    links.append({
+                        "source": "internet",
+                        "target": mx_serial,
+                        "linkType": "wan",
+                        "label": ul["interface"],
+                        "speed": ul["status"],
+                        "status": ul["status"].lower() if ul["status"] else "",
+                    })
+            else:
+                # Fallback: generic WAN link when no uplink status data
+                links.append({
+                    "source": "internet",
+                    "target": mx_serial,
+                    "linkType": "wan",
+                    "label": "WAN",
+                })
 
     # 8. Extract network name
     network_name = _extract_topology_network_name(tool_results, devices)

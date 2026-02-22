@@ -27,6 +27,7 @@ export function AppLayout() {
   const [isDraggingFloat, setIsDraggingFloat] = useState(false)
   const [isResizingFloat, setIsResizingFloat] = useState(false)
   const dragOffset = useRef({ x: 0, y: 0 })
+  const rafDragRef = useRef<number | null>(null)
 
   // Initialize floating position to bottom-left on first render
   useEffect(() => {
@@ -46,24 +47,30 @@ export function AppLayout() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (isDragging) {
-        const maxWidth = Math.round(window.innerWidth * 0.8)
-        const newWidth = Math.max(300, Math.min(maxWidth, e.clientX))
-        setChatWidth(newWidth)
-        return
-      }
-      if (isDraggingFloat) {
-        const x = Math.max(0, Math.min(window.innerWidth - floatingSize.w, e.clientX - dragOffset.current.x))
-        const y = Math.max(0, Math.min(window.innerHeight - floatingSize.h, e.clientY - dragOffset.current.y))
-        setFloatingPos({ x, y })
-        return
-      }
-      if (isResizingFloat) {
-        const newW = Math.max(FLOAT_MIN_W, e.clientX - floatingPos.x)
-        const newH = Math.max(FLOAT_MIN_H, e.clientY - floatingPos.y)
-        setFloatingSize({ w: newW, h: newH })
-        return
-      }
+      if (!isDragging && !isDraggingFloat && !isResizingFloat) return
+      const clientX = e.clientX
+      const clientY = e.clientY
+      // Throttle via rAF — at most one state update per frame
+      if (rafDragRef.current) return
+      rafDragRef.current = requestAnimationFrame(() => {
+        rafDragRef.current = null
+        if (isDragging) {
+          const maxWidth = Math.round(window.innerWidth * 0.8)
+          setChatWidth(Math.max(300, Math.min(maxWidth, clientX)))
+          return
+        }
+        if (isDraggingFloat) {
+          const x = Math.max(0, Math.min(window.innerWidth - floatingSize.w, clientX - dragOffset.current.x))
+          const y = Math.max(0, Math.min(window.innerHeight - floatingSize.h, clientY - dragOffset.current.y))
+          setFloatingPos({ x, y })
+          return
+        }
+        if (isResizingFloat) {
+          const newW = Math.max(FLOAT_MIN_W, clientX - floatingPos.x)
+          const newH = Math.max(FLOAT_MIN_H, clientY - floatingPos.y)
+          setFloatingSize({ w: newW, h: newH })
+        }
+      })
     },
     [isDragging, isDraggingFloat, isResizingFloat, floatingSize.w, floatingSize.h, floatingPos.x, floatingPos.y]
   )
@@ -72,6 +79,7 @@ export function AppLayout() {
     setIsDragging(false)
     setIsDraggingFloat(false)
     setIsResizingFloat(false)
+    if (rafDragRef.current) { cancelAnimationFrame(rafDragRef.current); rafDragRef.current = null }
   }, [])
 
   const toggleExpanded = useCallback(() => {
@@ -165,10 +173,11 @@ export function AppLayout() {
 
           {/* Floating chat window */}
           <div
-            className="fixed z-30 flex flex-col bg-white dark:bg-[#0c0f18] border border-gray-300 dark:border-[#1e2636] rounded-xl shadow-2xl overflow-hidden"
+            className="fixed z-30 flex flex-col bg-white dark:bg-[#0c0f18] border-2 border-gray-500 dark:border-gray-300 rounded-xl shadow-2xl overflow-hidden will-change-transform"
             style={{
-              left: floatingPos.x,
-              top: floatingPos.y,
+              transform: `translate3d(${floatingPos.x}px, ${floatingPos.y}px, 0)`,
+              left: 0,
+              top: 0,
               width: floatingSize.w,
               height: floatingSize.h,
             }}

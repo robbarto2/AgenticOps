@@ -1,7 +1,7 @@
 # Organizational Summary
 
 ## Trigger
-organizational summary, org summary, organization overview, org overview, dashboard, overall status, executive summary
+organizational summary, org summary, organization overview, org overview, dashboard, overall status, executive summary, network health, health details, health summary, org health, show health, network health details
 
 ## Steps
 1. Get organization details (`getOrganization`)

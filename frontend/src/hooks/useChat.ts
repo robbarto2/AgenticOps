@@ -29,6 +29,20 @@ export function useChat() {
   const responseTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const processingPromptIdRef = useRef<string | null>(null)
 
+  // --- Text streaming buffer: accumulate chunks and flush via rAF ---
+  const textBufferRef = useRef('')
+  const rafRef = useRef<number | null>(null)
+  const appendRef = useRef(appendToLastAssistant)
+  appendRef.current = appendToLastAssistant
+
+  const flushTextBuffer = useCallback(() => {
+    if (textBufferRef.current) {
+      appendRef.current(textBufferRef.current)
+      textBufferRef.current = ''
+    }
+    rafRef.current = null
+  }, [])
+
   const handleMessage = useCallback(
     (event: WebSocketInEvent) => {
       // Clear timeout on any message
@@ -57,7 +71,10 @@ export function useChat() {
 
         case 'text': {
           const text = event.data as string
-          appendToLastAssistant(text)
+          textBufferRef.current += text
+          if (!rafRef.current) {
+            rafRef.current = requestAnimationFrame(flushTextBuffer)
+          }
           break
         }
 
@@ -87,6 +104,10 @@ export function useChat() {
         }
 
         case 'done': {
+          // Flush any buffered text before finishing
+          if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+          if (textBufferRef.current) { appendRef.current(textBufferRef.current); textBufferRef.current = '' }
+
           clearToolCalls()
           setActiveAgent(null)
           setProcessing(false)
@@ -109,6 +130,10 @@ export function useChat() {
         }
 
         case 'error': {
+          // Flush any buffered text before showing error
+          if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+          if (textBufferRef.current) { appendRef.current(textBufferRef.current); textBufferRef.current = '' }
+
           const errData = event.data as { message: string } | null
           appendToLastAssistant(
             `\n\n_Error: ${errData?.message ?? 'Unknown error'}_`
@@ -125,7 +150,7 @@ export function useChat() {
         }
       }
     },
-    [addMessage, appendToLastAssistant, attachTableData, setActiveAgent, addToolCall, updateToolCall, setProcessing, clearToolCalls, addCard, setAgentPlan, setPendingConfirmation, setPromptStatus]
+    [addMessage, appendToLastAssistant, attachTableData, setActiveAgent, addToolCall, updateToolCall, setProcessing, clearToolCalls, addCard, setAgentPlan, setPendingConfirmation, setPromptStatus, flushTextBuffer]
   )
 
   const { sendMessage: wsSend, sendStop: wsStop, sendRaw } = useWebSocket(handleMessage)
@@ -234,11 +259,14 @@ export function useChat() {
     setProcessing(false)
   }, [wsStop, setProcessing, setActiveAgent, clearToolCalls, setPromptStatus])
 
-  // Cleanup timeout on unmount
+  // Cleanup timeout and rAF on unmount
   useEffect(() => {
     return () => {
       if (responseTimeoutRef.current) {
         clearTimeout(responseTimeoutRef.current)
+      }
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
       }
     }
   }, [])

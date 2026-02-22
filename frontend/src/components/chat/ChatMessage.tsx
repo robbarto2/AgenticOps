@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo, memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { formatTimestamp, agentDisplayName } from '../../utils/formatters'
@@ -37,7 +37,7 @@ function stripMatchingTables(content: string, tableData: TableData[]): string {
   })
 }
 
-export function ChatMessage({ message }: Props) {
+export const ChatMessage = memo(function ChatMessage({ message }: Props) {
   const isUser = message.role === 'user'
   const hasTableData = message.tableData && message.tableData.length > 0
   const [popupData, setPopupData] = useState<{ headers: string[]; cells: string[] } | null>(null)
@@ -71,9 +71,10 @@ export function ChatMessage({ message }: Props) {
   }, [])
 
   // Strip tables from markdown that will be rendered as InteractiveTable
-  const displayContent = hasTableData
-    ? stripMatchingTables(message.content, message.tableData!)
-    : message.content
+  const displayContent = useMemo(
+    () => hasTableData ? stripMatchingTables(message.content, message.tableData!) : message.content,
+    [message.content, message.tableData, hasTableData]
+  )
 
   return (
     <div className={`px-4 py-3 ${isUser ? 'bg-gray-100 dark:bg-[#111827]/60' : 'bg-transparent'}`}>
@@ -134,4 +135,4 @@ export function ChatMessage({ message }: Props) {
       </div>
     </div>
   )
-}
+})

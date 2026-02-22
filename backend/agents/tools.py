@@ -12,6 +12,9 @@ from mcp_client.manager import mcp_manager
 
 logger = logging.getLogger(__name__)
 
+# Cache: built once per agent type, reused across all calls
+_tool_cache: dict[str, list[StructuredTool]] = {}
+
 
 async def _call_mcp_tool(tool_name: str, **kwargs) -> str:
     """Call an MCP tool and return the result as a string."""
@@ -76,7 +79,14 @@ def _make_invoke(tool_name: str):
 
 
 def build_langchain_tools(agent_type: str) -> list[StructuredTool]:
-    """Build LangChain tools from MCP tool descriptors for a given agent type."""
+    """Build LangChain tools from MCP tool descriptors for a given agent type.
+
+    Results are cached after the first call per agent_type so Pydantic
+    schema generation doesn't repeat on every query.
+    """
+    if agent_type in _tool_cache:
+        return _tool_cache[agent_type]
+
     descriptors = mcp_manager.get_tools_for_agent(agent_type)
     tools = []
 
@@ -127,5 +137,6 @@ def build_langchain_tools(agent_type: str) -> list[StructuredTool]:
         )
         tools.append(tool)
 
+    _tool_cache[agent_type] = tools
     logger.info("Built %d LangChain tools for agent '%s'", len(tools), agent_type)
     return tools
