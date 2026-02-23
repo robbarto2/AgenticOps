@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.types import StreamWriter
 
 from agents.state import AgentState
-from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, needs_forced_summary, safe_writer
+from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, execute_tools_parallel, needs_forced_summary, safe_writer
 from agents.table_extractor import extract_test_table, ensure_agent_list
 from agents.tools import build_langchain_tools
 from config import settings
@@ -77,53 +77,9 @@ async def troubleshooting_node(state: AgentState, writer: StreamWriter) -> dict:
         if not response.tool_calls:
             break
 
-        for tool_call in response.tool_calls:
-            tool_name = tool_call["name"]
-            tool_args = tool_call["args"]
-
-            source = "meraki"
-            if tool_name.startswith("te_") or "thousandeyes" in tool_name.lower():
-                source = "thousandeyes"
-
-            # Stream tool_call event in real-time via StreamWriter
-            emit({
-                "type": "tool_call",
-                "tool": tool_name,
-                "source": source,
-                "status": "running",
-            })
-
-            # Find and execute the tool
-            matching_tools = [t for t in tools if t.name == tool_name]
-            if matching_tools:
-                try:
-                    result = await asyncio.wait_for(
-                        matching_tools[0].ainvoke(tool_args),
-                        timeout=TOOL_CALL_TIMEOUT_SEC
-                    )
-                except asyncio.TimeoutError:
-                    logger.error("Tool call timeout: %s(%s) exceeded %d seconds", tool_name, tool_args, TOOL_CALL_TIMEOUT_SEC)
-                    result = f"Error: Tool call timed out after {TOOL_CALL_TIMEOUT_SEC} seconds"
-            else:
-                result = f"Tool {tool_name} not found"
-
-            tool_results.append({
-                "tool": tool_name,
-                "args": tool_args,
-                "result": result,
-            })
-
-            # Stream tool completion in real-time
-            emit({
-                "type": "tool_call",
-                "tool": tool_name,
-                "source": source,
-                "status": "complete",
-            })
-
-            # Add tool result back to messages
-            from langchain_core.messages import ToolMessage
-            messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
+        await execute_tools_parallel(
+            response.tool_calls, tools, emit, tool_results, messages, TOOL_CALL_TIMEOUT_SEC
+        )
 
     # If the response is incomplete (exhausted iterations, truncated, or empty),
     # do one more LLM call WITHOUT tools to force a proper summary.

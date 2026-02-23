@@ -6,11 +6,11 @@ import asyncio
 import logging
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import StreamWriter
 
 from agents.state import AgentState
-from agents.stream_util import safe_writer
+from agents.stream_util import execute_tools_parallel, safe_writer
 from agents.tools import build_langchain_tools
 from config import settings
 from prompts import load_prompt
@@ -84,48 +84,9 @@ async def remediation_node(state: AgentState, writer: StreamWriter) -> dict:
         if not response.tool_calls:
             break
 
-        for tool_call in response.tool_calls:
-            tool_name = tool_call["name"]
-            tool_args = tool_call["args"]
-
-            # Determine source (all remediation tools are Meraki)
-            source = "meraki"
-
-            # Stream tool_call event
-            emit({
-                "type": "tool_call",
-                "tool": tool_name,
-                "source": source,
-                "status": "running",
-            })
-
-            matching_tools = [t for t in tools if t.name == tool_name]
-            if matching_tools:
-                try:
-                    result = await asyncio.wait_for(
-                        matching_tools[0].ainvoke(tool_args),
-                        timeout=TOOL_CALL_TIMEOUT_SEC
-                    )
-                except asyncio.TimeoutError:
-                    logger.error("Tool call timeout: %s(%s) exceeded %d seconds", tool_name, tool_args, TOOL_CALL_TIMEOUT_SEC)
-                    result = f"Error: Tool call timed out after {TOOL_CALL_TIMEOUT_SEC} seconds"
-            else:
-                result = f"Tool {tool_name} not found"
-
-            tool_results.append({
-                "tool": tool_name,
-                "args": tool_args,
-                "result": result,
-            })
-
-            emit({
-                "type": "tool_call",
-                "tool": tool_name,
-                "source": source,
-                "status": "complete",
-            })
-
-            messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
+        await execute_tools_parallel(
+            response.tool_calls, tools, emit, tool_results, messages, TOOL_CALL_TIMEOUT_SEC
+        )
 
     # Check if the response is a proposal (Phase 1) that needs confirmation
     response_text = response.content if isinstance(response.content, str) else str(response.content)

@@ -9,11 +9,11 @@ import re
 import time
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import StreamWriter
 
 from agents.state import AgentState
-from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, needs_forced_summary, safe_writer
+from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, execute_tools_parallel, needs_forced_summary, safe_writer
 from agents.table_extractor import (
     extract_network_table, extract_device_table, extract_test_table, extract_client_table,
     extract_uplink_table, _extract_network_device_counts, _detect_network_health_filter,
@@ -84,50 +84,9 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
             # No more tool calls - final response complete
             break
 
-        for tool_call in response.tool_calls:
-            tool_name = tool_call["name"]
-            tool_args = tool_call["args"]
-
-            source = "meraki"
-            if tool_name.startswith("te_") or "thousandeyes" in tool_name.lower():
-                source = "thousandeyes"
-
-            # Stream tool_call event in real-time via StreamWriter
-            emit({
-                "type": "tool_call",
-                "tool": tool_name,
-                "source": source,
-                "status": "running",
-            })
-
-            matching_tools = [t for t in tools if t.name == tool_name]
-            if matching_tools:
-                try:
-                    result = await asyncio.wait_for(
-                        matching_tools[0].ainvoke(tool_args),
-                        timeout=TOOL_CALL_TIMEOUT_SEC
-                    )
-                except asyncio.TimeoutError:
-                    logger.error("Tool call timeout: %s(%s) exceeded %d seconds", tool_name, tool_args, TOOL_CALL_TIMEOUT_SEC)
-                    result = f"Error: Tool call timed out after {TOOL_CALL_TIMEOUT_SEC} seconds"
-            else:
-                result = f"Tool {tool_name} not found"
-
-            tool_results.append({
-                "tool": tool_name,
-                "args": tool_args,
-                "result": result,
-            })
-
-            # Stream tool completion in real-time
-            emit({
-                "type": "tool_call",
-                "tool": tool_name,
-                "source": source,
-                "status": "complete",
-            })
-
-            messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
+        await execute_tools_parallel(
+            response.tool_calls, tools, emit, tool_results, messages, TOOL_CALL_TIMEOUT_SEC
+        )
 
     # Extract interactive tables when the user is asking for network, device, client, or test listings
     table_data: list[dict] = []

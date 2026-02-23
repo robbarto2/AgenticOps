@@ -7,11 +7,11 @@ import logging
 import time
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import StreamWriter
 
 from agents.state import AgentState
-from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, needs_forced_summary, safe_writer
+from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, execute_tools_parallel, needs_forced_summary, safe_writer
 from agents.table_extractor import extract_topology_card
 from agents.tools import build_langchain_tools
 from config import settings
@@ -78,32 +78,9 @@ async def topology_node(state: AgentState, writer: StreamWriter) -> dict:
             # No more tool calls - final response complete
             break
 
-        # Execute tool calls in parallel when multiple are returned (big speedup for LLDP/CDP)
-        tool_map = {t.name: t for t in tools}
-        pending_calls = response.tool_calls
-
-        # Emit all "running" events upfront
-        for tc in pending_calls:
-            source = "thousandeyes" if tc["name"].startswith("te_") or "thousandeyes" in tc["name"].lower() else "meraki"
-            emit({"type": "tool_call", "tool": tc["name"], "source": source, "status": "running"})
-
-        async def _exec_tool(tc):
-            tool_obj = tool_map.get(tc["name"])
-            if tool_obj:
-                try:
-                    return await asyncio.wait_for(tool_obj.ainvoke(tc["args"]), timeout=TOOL_CALL_TIMEOUT_SEC)
-                except asyncio.TimeoutError:
-                    logger.error("Tool call timeout: %s exceeded %ds", tc["name"], TOOL_CALL_TIMEOUT_SEC)
-                    return f"Error: Tool call timed out after {TOOL_CALL_TIMEOUT_SEC} seconds"
-            return f"Tool {tc['name']} not found"
-
-        results = await asyncio.gather(*[_exec_tool(tc) for tc in pending_calls])
-
-        for tc, result in zip(pending_calls, results):
-            source = "thousandeyes" if tc["name"].startswith("te_") or "thousandeyes" in tc["name"].lower() else "meraki"
-            tool_results.append({"tool": tc["name"], "args": tc["args"], "result": result})
-            emit({"type": "tool_call", "tool": tc["name"], "source": source, "status": "complete"})
-            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+        await execute_tools_parallel(
+            response.tool_calls, tools, emit, tool_results, messages, TOOL_CALL_TIMEOUT_SEC
+        )
 
     # If the response is incomplete (exhausted iterations, truncated, or empty),
     # do one more LLM call WITHOUT tools to force a proper summary.

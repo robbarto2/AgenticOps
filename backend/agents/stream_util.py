@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any, Callable
 
+from langchain_core.messages import ToolMessage
+
 logger = logging.getLogger(__name__)
+
+# Known ThousandEyes tool names (not caught by prefix/substring heuristics)
+_TE_TOOLS = frozenset({
+    "list_network_app_synthetics_tests", "get_network_app_synthetics_test",
+    "get_network_app_synthetics_metrics", "get_endpoint_agent_metrics",
+    "get_path_visualization_results", "get_full_path_visualization",
+    "get_anomalies", "list_alerts", "get_alert", "get_bgp_route_test_results",
+    "list_cloud_enterprise_agents", "list_endpoint_agents",
+    "list_endpoint_agent_tests",
+})
 
 # Overall timeout for the agentic loop (seconds).
 # Prevents agents from running indefinitely when LLM calls or tool calls
@@ -111,3 +124,53 @@ def _extract_response_text(content: Any) -> str:
                 parts.append(block.text)
         return "\n".join(parts).strip()
     return ""
+
+
+def detect_tool_source(tool_name: str) -> str:
+    """Determine whether a tool belongs to Meraki or ThousandEyes."""
+    if tool_name.startswith("te_") or "thousandeyes" in tool_name.lower() or tool_name in _TE_TOOLS:
+        return "thousandeyes"
+    return "meraki"
+
+
+async def execute_tools_parallel(
+    tool_calls: list[dict],
+    tools: list,
+    emit: Callable,
+    tool_results: list[dict],
+    messages: list,
+    tool_call_timeout: int = 30,
+) -> None:
+    """Execute multiple tool calls in parallel using asyncio.gather().
+
+    Mutates *tool_results* and *messages* in-place, appending results and
+    ToolMessage entries for each completed call.  Emits ``running`` and
+    ``complete`` status events via *emit*.
+    """
+    tool_map = {t.name: t for t in tools}
+
+    # Emit all "running" events upfront
+    for tc in tool_calls:
+        source = detect_tool_source(tc["name"])
+        emit({"type": "tool_call", "tool": tc["name"], "source": source, "status": "running"})
+
+    async def _exec_tool(tc: dict) -> str:
+        tool_obj = tool_map.get(tc["name"])
+        if not tool_obj:
+            return f"Tool {tc['name']} not found"
+        # Validate call_meraki_api args before invoking
+        if tc["name"] == "call_meraki_api" and not tc["args"].get("method"):
+            return "Error: call_meraki_api requires both 'section' and 'method' parameters. Please provide the specific API method name."
+        try:
+            return await asyncio.wait_for(tool_obj.ainvoke(tc["args"]), timeout=tool_call_timeout)
+        except asyncio.TimeoutError:
+            logger.error("Tool call timeout: %s exceeded %ds", tc["name"], tool_call_timeout)
+            return f"Error: Tool call timed out after {tool_call_timeout} seconds"
+
+    results = await asyncio.gather(*[_exec_tool(tc) for tc in tool_calls])
+
+    for tc, result in zip(tool_calls, results):
+        source = detect_tool_source(tc["name"])
+        tool_results.append({"tool": tc["name"], "args": tc["args"], "result": result})
+        emit({"type": "tool_call", "tool": tc["name"], "source": source, "status": "complete"})
+        messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
