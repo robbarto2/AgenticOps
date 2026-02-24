@@ -1,5 +1,4 @@
-import { useMemo, useState, useRef, useCallback, useEffect } from 'react'
-import { createPortal } from 'react-dom'
+import { useMemo, useState, useRef, useCallback } from 'react'
 import dagre from 'dagre'
 import type { TopologyCard as TopologyCardType, TopologyDeviceType, TopologyNode, TopologyLink } from '../../types/card'
 import { useThemeStore } from '../../store/themeSlice'
@@ -155,7 +154,6 @@ export function TopologyCard({ data }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState({ x: 0, y: 0 })
-  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const { layoutNodes, layoutLinks, width, height, hasInternet } = useMemo(() => {
     // Check if we have any MX devices
@@ -312,28 +310,13 @@ export function TopologyCard({ data }: Props) {
     setPan({ x: 0, y: 0 })
   }, [])
 
-  // Close fullscreen on Escape
-  useEffect(() => {
-    if (!isFullscreen) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false) }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [isFullscreen])
-
-  // Auto-fit when entering fullscreen (after portal renders)
-  useEffect(() => {
-    if (isFullscreen) {
-      requestAnimationFrame(() => autoFit())
-    }
-  }, [isFullscreen, autoFit])
-
   const textColor = isDark ? '#e5e7eb' : '#1f2937'
   const subtextColor = isDark ? '#9ca3af' : '#6b7280'
   const nodeBg = isDark ? '#1f2937' : '#ffffff'
   const nodeBorder = isDark ? '#374151' : '#e5e7eb'
 
   const content = (
-    <div className={isFullscreen ? 'fixed inset-0 z-[100] flex flex-col bg-gray-50 dark:bg-gray-950' : 'w-full h-full flex flex-col'} style={isFullscreen ? undefined : { minHeight: 400 }}>
+    <div className="w-full h-full flex flex-col" style={{ minHeight: 400 }}>
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         <div className="flex items-center gap-3 text-xs" style={{ color: subtextColor }}>
@@ -378,21 +361,6 @@ export function TopologyCard({ data }: Props) {
             title="Reset to 100% zoom"
           >
             Reset
-          </button>
-          <button
-            onClick={() => setIsFullscreen((f) => !f)}
-            className="px-2 py-1 text-xs font-medium rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition-colors"
-            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-          >
-            {isFullscreen ? (
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" />
-              </svg>
-            ) : (
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
-              </svg>
-            )}
           </button>
           <span className="text-xs font-mono" style={{ color: subtextColor }}>
             {(zoom * 100).toFixed(0)}%
@@ -790,5 +758,5 @@ export function TopologyCard({ data }: Props) {
     </div>
   )
 
-  return isFullscreen ? createPortal(content, document.body) : content
+  return content
 }

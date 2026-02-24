@@ -25,7 +25,7 @@ async def chat_websocket(websocket: WebSocket) -> None:
     processing_task: asyncio.Task | None = None
     logger.info("WebSocket connected: session=%s", session_id)
 
-    async def process_query(content: str, sid: str) -> None:
+    async def process_query(content: str, sid: str, images: list[dict] | None = None) -> None:
         """Run the agent graph and stream results back via WebSocket."""
         session = session_store.get_or_create(sid)
         session.add_message("user", content)
@@ -48,6 +48,16 @@ async def chat_websocket(websocket: WebSocket) -> None:
                     assistant_text = assistant_text[:1500] + "\n\n[...truncated for context]"
                 msg_objects.append(AIMessage(content=assistant_text))
 
+        # Replace the last HumanMessage with multimodal content if images are present
+        if images and msg_objects and isinstance(msg_objects[-1], HumanMessage):
+            content_blocks: list[dict] = [{"type": "text", "text": content}]
+            for img in images:
+                content_blocks.append({
+                    "type": "image_url",
+                    "image_url": {"url": img["dataUrl"]},
+                })
+            msg_objects[-1] = HumanMessage(content=content_blocks)
+
         initial_state: AgentState = {
             "messages": msg_objects,
             "user_query": content,
@@ -57,6 +67,7 @@ async def chat_websocket(websocket: WebSocket) -> None:
             "cards": [],
             "agent_events": [],
             "table_data": [],
+            "has_images": bool(images),
             "agent_plan": [],
             "plan_step": 0,
             "pending_confirmation": {},
@@ -125,6 +136,10 @@ async def chat_websocket(websocket: WebSocket) -> None:
 
                     # Send card directives
                     cards = state_update.get("cards") or []
+                    if cards:
+                        logger.info("Sending %d card(s) from node '%s': %s",
+                                    len(cards), node_name,
+                                    [c.get("title", c.get("type", "?")) for c in cards])
                     for card in cards:
                         await _send_event(websocket, "card", card)
 
@@ -202,6 +217,19 @@ async def chat_websocket(websocket: WebSocket) -> None:
 
             session_id = message.get("session_id", "default")
 
+            # Parse and validate image attachments
+            allowed_mimes = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+            raw_images = message.get("images", [])
+            validated_images = []
+            for img in raw_images[:4]:  # Cap at 4 images
+                if (
+                    isinstance(img, dict)
+                    and isinstance(img.get("dataUrl"), str)
+                    and img["dataUrl"].startswith("data:image/")
+                    and img.get("mimeType") in allowed_mimes
+                ):
+                    validated_images.append(img)
+
             # Cancel any existing processing before starting new one
             if processing_task and not processing_task.done():
                 processing_task.cancel()
@@ -210,7 +238,9 @@ async def chat_websocket(websocket: WebSocket) -> None:
                 except (asyncio.CancelledError, Exception):
                     pass
 
-            processing_task = asyncio.create_task(process_query(content, session_id))
+            processing_task = asyncio.create_task(
+                process_query(content, session_id, validated_images or None)
+            )
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected: session=%s", session_id)

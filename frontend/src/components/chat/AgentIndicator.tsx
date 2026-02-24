@@ -12,6 +12,8 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
   testing: 'Running instant tests...',
   remediation: 'Preparing configuration changes...',
   performance: 'Analyzing performance metrics...',
+  wifi: 'Analyzing wireless network...',
+  vision: 'Analyzing your image...',
   canvas: 'Preparing results...',
 }
 

@@ -19,23 +19,28 @@ AgenticOps/
 │   ├── agents/                   # LangGraph multi-agent system
 │   │   ├── graph.py              # StateGraph definition (nodes + edges + plan_router)
 │   │   ├── state.py              # AgentState TypedDict
+│   │   ├── stream_util.py        # Shared helpers: execute_tools_parallel, safe_writer, timeouts
+│   │   ├── table_extractor.py    # Extracts structured tables from tool results (devices, clients, uplinks, SSIDs, tests)
 │   │   ├── orchestrator.py       # Routes queries to specialists (supports multi-agent plans)
 │   │   ├── troubleshooting.py    # WiFi, WAN, performance, client, app diagnosis
 │   │   ├── compliance.py         # Config audit, policy checks, monitoring compliance
 │   │   ├── security.py           # Firewall, threat, switch port, wireless security
-│   │   ├── discovery.py          # Inventory, health, device/client listing
+│   │   ├── discovery.py          # Inventory, health, device/client/SSID listing
 │   │   ├── topology.py           # Network topology maps, LLDP/CDP discovery
 │   │   ├── testing.py            # On-demand ThousandEyes instant tests
 │   │   ├── remediation.py        # Write operations with user confirmation
+│   │   ├── performance.py        # ThousandEyes performance metrics and anomaly analysis
+│   │   ├── wifi.py               # Wireless health, RF analysis, channel utilization, RSSI charts
 │   │   ├── canvas_agent.py       # Structures results into card JSON (Haiku model)
 │   │   └── tools.py              # MCP → LangChain tool wrappers
 │   ├── mcp_client/
-│   │   ├── manager.py            # MCPClientManager (Meraki stdio + TE HTTP)
+│   │   ├── manager.py            # MCPClientManager (Meraki stdio + TE HTTP), tool allowlists, caching
 │   │   └── types.py              # ToolDescriptor dataclass
-│   ├── skills/                   # Skill markdown files + loader
+│   ├── skills/                   # Skill markdown files + loader (module-level cache)
 │   │   ├── SKILLS.md             # Registry index
-│   │   ├── loader.py             # Loads skills into agent prompts
+│   │   ├── loader.py             # Loads skills into agent prompts (cached at module level)
 │   │   └── *.md                  # Individual skill definitions
+│   ├── prompts/                  # Agent system prompts (one .md per agent, includes {skills} placeholder)
 │   ├── api/
 │   │   ├── websocket.py          # /ws/chat WebSocket endpoint
 │   │   ├── rest.py               # /api/health, /api/skills, /api/entity-stats
@@ -44,18 +49,25 @@ AgenticOps/
 │   └── state/
 │       └── session.py            # In-memory session store
 │
-└── frontend/                     # React + TypeScript + Vite
+└── frontend/                     # React 19 + TypeScript + Vite
     └── src/
         ├── App.tsx               # Root component
+        ├── main.tsx              # Entry point
         ├── components/
-        │   ├── layout/           # AppLayout (split pane), TopBar
-        │   ├── chat/             # ChatPanel, ChatMessage, ChatInput, AgentIndicator, ConfirmationModal, MarkdownRowPopup, InteractiveTable, entity popups (DevicePopup, TestPopup, ClientPopup, UplinkPopup)
+        │   ├── layout/           # AppLayout, TopBar, HelpMenu (Quick Actions), ThemeToggle, Toast
+        │   ├── chat/             # ChatPanel, ChatMessage, ChatInput, AgentIndicator, ConfirmationModal,
+        │   │                     # InteractiveTable, PromptQueue, HoverPopup, MarkdownRowPopup,
+        │   │                     # DevicePopup, TestPopup, ClientPopup, UplinkPopup, SsidPopup
         │   ├── canvas/           # CanvasPanel (ReactFlow wrapper)
-        │   └── cards/            # CardNode + card type components (DataTable, BarChart, LineChart, TopologyCard, TestDetailCard, NetworkDetailCard, OrgSummaryCard, etc.)
+        │   └── cards/            # CardNode, CardHeader, StackNode, UpstreamConnection, StatDetailPopover,
+        │                         # DataTableCard, BarChartCard, LineChartCard, AlertSummaryCard,
+        │                         # TextReportCard, NetworkHealthCard, NetworkDetailCard, OrgSummaryCard,
+        │                         # SwitchDetailCard, AccessPointDetailCard, DeviceDetailCard,
+        │                         # TestDetailCard, TopologyCard, WifiHealthCard, SsidDetailCard
         ├── hooks/                # useWebSocket, useChat, useCanvas
-        ├── store/                # Zustand: chatSlice, canvasSlice, connectionSlice
+        ├── store/                # Zustand: chatSlice, canvasSlice, connectionSlice, themeSlice, toastSlice, queueSlice
         ├── types/                # card.ts, chat.ts, websocket.ts
-        └── utils/                # cardPositioning.ts, formatters.ts
+        └── utils/                # cardPositioning.ts, cardCategories.ts, formatters.ts
 ```
 
 ## How to run
@@ -104,20 +116,39 @@ Multi-agent plans (compound queries):
 Orchestrator → Specialist₁ → Plan Router → Specialist₂ → Plan Router → Canvas → END
 ```
 
-- **Orchestrator**: Classifies query, returns one or more of: `troubleshooting`, `compliance`, `security`, `discovery`, `topology`, `testing`, `remediation`
+### Agents
+
+| Agent | Model | Description |
+|-------|-------|-------------|
+| **Orchestrator** | Haiku | Classifies query, returns one or more of the specialist agent names |
+| **Discovery** | Haiku | Network inventory, device/client/SSID listing, organizational summary |
+| **Troubleshooting** | Sonnet | WiFi, WAN, performance, client, app diagnosis |
+| **WiFi** | Sonnet | Wireless health, RF analysis, channel utilization, RSSI/SNR, client density |
+| **Performance** | Haiku | ThousandEyes metrics, anomaly detection, latency/loss analysis |
+| **Security** | Haiku | Firewall rules, threat events, switch port security, wireless audit |
+| **Compliance** | Haiku | Config audit, firmware status, monitoring compliance |
+| **Topology** | Sonnet | Network topology maps from LLDP/CDP (10 iterations, 90s timeout, parallel tool calls) |
+| **Testing** | Haiku | On-demand ThousandEyes instant tests (HTTP, DNS, page load, etc.) |
+| **Remediation** | Sonnet | Write operations with mandatory user confirmation |
+| **Canvas** | Haiku | Transforms tool_results into card directives (JSON array) |
+
 - **Plan Router**: Pure-logic node (no LLM call) that dispatches to the next agent in the plan sequence
-- **Specialist agents**: Call MCP tools via agentic loop (up to 6-10 iterations), collect tool_results, increment plan_step
-- **Topology agent**: Builds network topology maps from LLDP/CDP data (10 iterations, 90-second timeout). Parallelizes tool calls via `asyncio.gather`. Programmatically fetches WAN uplink statuses after the agent loop to show failed/active links on topology maps.
-- **Testing agent**: Runs on-demand ThousandEyes instant tests (HTTP, DNS, page load, etc.)
-- **Remediation agent**: Executes write operations with mandatory user confirmation before changes
-- **Canvas agent**: Transforms tool_results into card directives (JSON array of card objects, uses Haiku model)
 
 ### Programmatic data enrichment
 
 Specialist agents programmatically fetch critical data after the LLM agent loop to avoid relying on the LLM calling the right tools:
-- **Discovery/Performance/Troubleshooting**: Fetch `list_cloud_enterprise_agents` for agent name/location enrichment in test tables (via `ensure_agent_list()` helper)
+- **Discovery/Performance/Troubleshooting**: Fetch `list_cloud_enterprise_agents` for ThousandEyes agent name/location enrichment in test tables (via `ensure_agent_list()` helper)
 - **Discovery**: Fetch `get_network_app_synthetics_metrics` (batch) for test performance data; fetch `getOrganizationApplianceUplinkStatuses` for WAN failure data in network tables
 - **Topology**: Fetch `getOrganizationApplianceUplinkStatuses` for per-interface WAN link status (failed/active/not connected) on topology maps; parallelize LLDP/CDP calls via `asyncio.gather`
+- **WiFi**: Fetch `getOrganizationNetworks` for name resolution; fetch `getOrganizationWirelessDevicesChannelUtilizationByNetwork` and `getOrganizationWirelessDevicesPacketLossByNetwork` (24h timespan); for RSSI queries, pre-fetch per-band `getNetworkWirelessSignalQualityHistory` (2.4, 5, 6 GHz)
+
+### WiFi agent chart extraction
+
+The WiFi agent builds visual cards programmatically from tool_results (no LLM involvement):
+1. **RSSI queries** → multi-line chart (one line per radio band: 2.4 GHz amber, 5 GHz blue, 6 GHz green) with Y-axis in dBm
+2. **Network-specific queries** → `wifi_health` dashboard card (summary metrics + per-AP table)
+3. **Org-wide queries** → bar charts (channel utilization by network, client density)
+4. **Trend queries** → line charts (utilization history, client count history)
 
 ## MCP connections
 
@@ -128,11 +159,13 @@ Specialist agents programmatically fetch critical data after the LLM agent loop 
 
 Tool access by agent:
 - **Troubleshooting**: Meraki + ThousandEyes (including BGP, events, outages)
+- **WiFi**: Meraki only (wireless APIs via `call_meraki_api`; `search_methods`/`get_method_info` excluded to prevent wasted iterations)
 - **Compliance**: Meraki + ThousandEyes (monitoring compliance)
 - **Security**: Meraki + ThousandEyes (including switch port, wireless audit)
 - **Discovery**: Meraki + ThousandEyes (inventory, devices, clients, networks)
 - **Topology**: Meraki only (devices, LLDP/CDP, uplinks)
 - **Testing**: ThousandEyes only (instant tests, templates, agent discovery)
+- **Performance**: Meraki + ThousandEyes (metrics, anomalies, path viz)
 - **Remediation**: Meraki only (write operations + API discovery)
 
 ## WebSocket protocol
@@ -158,13 +191,57 @@ Tool access by agent:
 |------|-----------|-----------|
 | `data_table` | `{ columns: string[], rows: string[][] }` | Sortable table |
 | `bar_chart` | `{ labels: string[], datasets: [{label, data, color}] }` | Recharts BarChart |
-| `line_chart` | `{ labels: string[], datasets: [{label, data, color}] }` | Recharts LineChart |
+| `line_chart` | `{ labels: string[], datasets: [{label, data, color}] }` | Recharts LineChart (auto-detects ms/% /dBm units) |
 | `alert_summary` | `{ alerts: [{severity, title, description, timestamp?}] }` | Severity-colored list |
 | `text_report` | `{ content: string }` | Markdown rendered |
 | `network_health` | `{ metrics: [{label, value, status, icon?}] }` | Metric tiles |
-| `topology` | `{ nodes: [{id, label, deviceType, status, ip, model, serial}], links: [{source, target, linkType, label, speed, status}], networkName }` | Interactive SVG network diagram (WAN links color-coded: red=failed, gray=not connected, purple=active) |
+| `network_detail` | `{ networkName, networkId, deviceCounts, clientCount, ... }` | Network info with WAN alerts |
+| `org_summary` | `{ orgName, networkCount, deviceCounts, ... }` | Organization overview |
+| `switch_detail` | `{ deviceName, model, serial, ports: [...] }` | Switch with port details |
+| `access_point_detail` | `{ deviceName, model, serial, ssids, channelUtil, ... }` | AP with channel utilization |
+| `device_detail` | `{ deviceName, model, serial, status, ... }` | Generic device details |
+| `test_detail` | `{ testName, testType, metrics, agents, ... }` | ThousandEyes test details |
+| `topology` | `{ nodes: [...], links: [...], networkName }` | Interactive SVG topology (WAN links: red=failed, gray=not connected, purple=active) |
+| `wifi_health` | `{ networkName, overallStatus, summary: [{label, value, status}], accessPoints: [...] }` | WiFi health dashboard with AP table |
+| `ssid_detail` | `{ ssidName, networkId, authMode, encryptionMode, ... }` | SSID configuration details |
+| `pie_chart` | `{ segments: [{label, value, color}] }` | Recharts PieChart (interactive donut ring with hover expansion) |
 
 Every card has: `id`, `type`, `title`, `source` ("meraki" or "thousandeyes"), and a `data` object matching its type.
+
+### Card categories & stacking
+
+Cards are grouped into categories for auto-layout stacking on the canvas:
+
+| Category | Label | Color | Card types |
+|----------|-------|-------|------------|
+| org | Organization | `#eab308` | org_summary |
+| network | Networks | `#10b981` | network_health, network_detail |
+| topology | Topologies | `#8b5cf6` | topology |
+| switch | Switches | `#3b82f6` | switch_detail |
+| access_point | Wireless APs | `#06b6d4` | access_point_detail |
+| ssid | SSIDs | `#a855f7` | ssid_detail |
+| device | Devices | `#f97316` | device_detail |
+| test | Tests | `#ec4899` | test_detail |
+| alert | Alerts | `#ef4444` | alert_summary |
+| wifi | Wi-Fi Analysis | `#38bdf8` | wifi_health, pie_chart (wifi-titled), bar_chart (wifi-titled), line_chart (wifi-titled) |
+| chart | Charts | `#14b8a6` | bar_chart, line_chart, pie_chart |
+| table | Tables | `#6366f1` | data_table |
+| report | Reports | `#94a3b8` | text_report |
+
+### Interactive tables
+
+Chat messages can include interactive tables (`TableData`) with entity-specific popups:
+
+| Entity type | Popup component | Canvas card on "Add" |
+|------------|----------------|---------------------|
+| `device` | DevicePopup | device_detail / switch_detail / access_point_detail |
+| `client` | ClientPopup | — |
+| `uplink` | UplinkPopup | — |
+| `test` | TestPopup | test_detail |
+| `ssid` | SsidPopup | ssid_detail |
+| `network` | HoverPopup | network_detail |
+
+Rows support `status_type` ("error", "warning", "normal") with colored left-border accents (red/amber).
 
 ## Skills system
 
@@ -174,14 +251,18 @@ Skills are markdown files in `backend/skills/` that guide agent behavior. Each s
 - **Analysis**: Thresholds and patterns to check
 - **Presentation**: Which card types to output
 
+Skills are cached at module level after first load (no repeated disk I/O).
+
 Skill-to-agent mapping (in `skills/loader.py`):
-- troubleshooting → `wireless_troubleshooting.md`, `wan_performance.md`, `client_troubleshooting.md`, `application_performance.md`
+- troubleshooting → `wireless_troubleshooting.md`, `wan_performance.md`, `client_troubleshooting.md`, `application_performance.md`, `performance_degradation_analysis.md`
 - compliance → `config_audit.md`, `monitoring_compliance.md`
 - security → `security_posture.md`, `switch_port_security.md`, `wireless_security.md`
 - discovery → `network_inventory.md`, `organizational_summary.md`
 - topology → `network_topology.md`
 - testing → `instant_testing.md`, `connectivity_validation.md`, `template_deployment.md`
 - remediation → `switch_port_remediation.md`, `ssid_remediation.md`, `firewall_remediation.md`
+- performance → `performance_monitoring.md`, `application_performance.md`
+- wifi → `wifi_health_assessment.md`, `rf_analysis.md`, `wifi_client_analysis.md`
 
 ## Adding a new agent
 
@@ -204,8 +285,11 @@ Skill-to-agent mapping (in `skills/loader.py`):
 
 1. Add the type to `frontend/src/types/card.ts` (interface + add to `AnyCard` union)
 2. Create `frontend/src/components/cards/<Name>Card.tsx`
-3. Add the case to `CardNode.tsx` → `renderContent()` switch
-4. Update canvas agent prompt in `backend/agents/canvas_agent.py` with the new type spec
+3. Add the case to `CardNode.tsx` → `renderContent()` switch and `cardAccentColor()`
+4. Add category in `frontend/src/utils/cardCategories.ts` → `getCardCategory()`
+5. Add dedup key in `frontend/src/store/canvasSlice.ts` → `getCardKey()`
+6. Add default height in `canvasSlice.ts` card height defaults
+7. Update canvas agent prompt in `backend/agents/canvas_agent.py` with the new type spec
 
 ## Environment variables
 
@@ -222,10 +306,31 @@ Meraki-specific vars (passed through to MCP subprocess): `MERAKI_API_KEY`, `MERA
 
 ## Tech stack
 
-- **Backend**: Python 3.12+, FastAPI, LangGraph, LangChain-Anthropic, MCP SDK
-- **Frontend**: React 19, TypeScript, Vite, @xyflow/react, Recharts, Zustand, Tailwind CSS v4
-- **LLM**: Claude (specialist agents use `model_name`, orchestrator uses `orchestrator_model_name` (Haiku), canvas uses `canvas_model_name` (Haiku) — all configured in `config.py`)
-- **Theme**: Dark (bg-gray-950, border-gray-800 palette)
+### Backend
+- **Python 3.12+**, FastAPI, Uvicorn
+- **LangGraph** — multi-agent orchestration with StateGraph
+- **LangChain-Anthropic** — Claude LLM integration
+- **MCP SDK** — client connections to Meraki (stdio) and ThousandEyes (Streamable HTTP)
+- **Pydantic / Pydantic-Settings** — config and data validation
+
+### Frontend
+- **React 19** + **TypeScript 5.9** — UI framework
+- **Vite 7** — build tool and dev server (proxies `/api` and `/ws` to backend)
+- **@xyflow/react 12** — infinite canvas with draggable card nodes and auto-layout
+- **dagre** — directed graph layout algorithm for auto-positioning cards
+- **Recharts 3** — bar and line chart visualizations within cards
+- **Zustand 5** — lightweight state management (6 stores: chat, canvas, connection, theme, toast, queue)
+- **Tailwind CSS v4** — utility-first styling with `@tailwindcss/vite` plugin
+- **react-markdown** + **remark-gfm** — renders markdown in chat messages and text report cards
+- **@tailwindcss/typography** — prose styling for markdown content
+
+### LLM models
+- **Claude Sonnet** (`claude-sonnet-4-20250514`) — troubleshooting, WiFi, topology, remediation (complex analysis)
+- **Claude Haiku** (`claude-haiku-4-5-20251001`) — orchestrator, canvas, discovery, performance, compliance, security, testing (fast routing/summarization)
+
+### Theme
+- Dark primary (bg-gray-950, border-gray-800 palette)
+- Light mode supported via ThemeToggle
 
 ## Key conventions
 

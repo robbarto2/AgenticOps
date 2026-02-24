@@ -1,7 +1,7 @@
 import type { AnyCard } from '../types/card'
 import { detectDeviceType } from './formatters'
 
-export type CardCategory = 'network' | 'topology' | 'org' | 'switch' | 'access_point' | 'device' | 'test' | 'alert' | 'chart' | 'table' | 'report'
+export type CardCategory = 'network' | 'topology' | 'org' | 'switch' | 'access_point' | 'device' | 'test' | 'alert' | 'wifi' | 'ssid' | 'chart' | 'table' | 'report'
 
 const CATEGORY_META: Record<CardCategory, { label: string; color: string }> = {
   switch: { label: 'Switches', color: '#3b82f6' },
@@ -12,6 +12,8 @@ const CATEGORY_META: Record<CardCategory, { label: string; color: string }> = {
   test: { label: 'Tests', color: '#ec4899' },
   topology: { label: 'Topologies', color: '#8b5cf6' },
   alert: { label: 'Alerts', color: '#ef4444' },
+  wifi: { label: 'Wi-Fi Analysis', color: '#38bdf8' },
+  ssid: { label: 'SSIDs', color: '#a855f7' },
   chart: { label: 'Charts', color: '#14b8a6' },
   table: { label: 'Tables', color: '#6366f1' },
   report: { label: 'Reports', color: '#94a3b8' },
@@ -22,6 +24,10 @@ export function getCardCategory(card: AnyCard): CardCategory {
     case 'network_detail':
     case 'network_health':
       return 'network'
+    case 'wifi_health':
+      return 'wifi'
+    case 'ssid_detail':
+      return 'ssid'
     case 'topology':
       return 'topology'
     case 'org_summary':
@@ -36,8 +42,12 @@ export function getCardCategory(card: AnyCard): CardCategory {
       return 'test'
     case 'alert_summary':
       return 'alert'
+    case 'pie_chart':
+      if (/channel\s+utiliz|client\s+density|wireless\s+(client|activity|band)|band\s+distrib/i.test(card.title)) return 'wifi'
+      return 'chart'
     case 'bar_chart':
     case 'line_chart':
+      if (/channel\s+utiliz|client\s+density|wireless\s+client/i.test(card.title)) return 'wifi'
       return 'chart'
     case 'text_report':
       return 'report'

@@ -128,6 +128,7 @@ class OrgHealthResponse(BaseModel):
     devices_alerting: int
     devices_dormant: int
     devices_total: int
+    clients_total: int | None = None  # Connected client count (may be unavailable)
     timestamp: str             # ISO 8601
 
 

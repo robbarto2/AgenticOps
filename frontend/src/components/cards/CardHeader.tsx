@@ -7,7 +7,9 @@ interface Props {
   title: string
   source: 'meraki' | 'thousandeyes'
   collapsed?: boolean
+  isFullscreen?: boolean
   onCollapse: () => void
+  onFullscreen?: () => void
   onClose: () => void
 }
 
@@ -62,7 +64,7 @@ function DeviceIcon({ icon }: { icon: DeviceIconType }) {
   }
 }
 
-export function CardHeader({ title, source, collapsed, onCollapse, onClose }: Props) {
+export function CardHeader({ title, source, collapsed, isFullscreen, onCollapse, onFullscreen, onClose }: Props) {
   const device = detectDeviceType(title)
   const [bubblePos, setBubblePos] = useState<{ top: number; left: number } | null>(null)
   const titleRef = useRef<HTMLDivElement>(null)
@@ -146,6 +148,21 @@ export function CardHeader({ title, source, collapsed, onCollapse, onClose }: Pr
             )}
           </svg>
         </button>
+        {!collapsed && onFullscreen && (
+          <button
+            onClick={onFullscreen}
+            className="p-1.5 rounded hover:bg-gray-300/50 dark:hover:bg-gray-700/50 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {isFullscreen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+              )}
+            </svg>
+          </button>
+        )}
         <button
           onClick={onClose}
           className="p-1.5 rounded hover:bg-red-500/20 text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer"

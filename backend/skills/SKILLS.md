@@ -19,6 +19,7 @@ Each skill file is a markdown document with the following structure:
 | wan_performance | `wan_performance.md` | Analyze WAN latency, packet loss, bandwidth, and failover status |
 | client_troubleshooting | `client_troubleshooting.md` | Diagnose issues with specific user devices and endpoints |
 | application_performance | `application_performance.md` | Investigate SaaS and cloud application performance issues |
+| performance_degradation_analysis | `performance_degradation_analysis.md` | Systematic root cause isolation for performance degradation using ThousandEyes path viz, outages, BGP, and Meraki correlation |
 
 ### Compliance
 | Skill | File | Description |
@@ -38,6 +39,13 @@ Each skill file is a markdown document with the following structure:
 |-------|------|-------------|
 | network_inventory | `network_inventory.md` | Display devices, networks, topology, and overall health status |
 | organizational_summary | `organizational_summary.md` | Display org-wide network status and executive overview |
+
+### Wi-Fi Analysis
+| Skill | File | Description |
+|-------|------|-------------|
+| wifi_health_assessment | `wifi_health_assessment.md` | Assess overall WiFi health — AP status, channel utilization, connection success, packet loss, rogue APs |
+| rf_analysis | `rf_analysis.md` | Deep RF environment analysis — channel interference, power levels, RF profiles, optimization recommendations |
+| wifi_client_analysis | `wifi_client_analysis.md` | Client density and capacity analysis — per-AP load, band distribution, roaming, capacity planning |
 
 ### Testing
 | Skill | File | Description |

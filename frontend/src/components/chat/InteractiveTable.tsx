@@ -5,6 +5,7 @@ import { DevicePopup } from './DevicePopup'
 import { TestPopup } from './TestPopup'
 import { ClientPopup } from './ClientPopup'
 import { UplinkPopup } from './UplinkPopup'
+import { SsidPopup } from './SsidPopup'
 
 interface Props {
   tableData: TableData
@@ -88,7 +89,7 @@ export const InteractiveTable = memo(function InteractiveTable({ tableData }: Pr
             {hasErrorRows && (
               <span className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
                 <span className="w-3 h-[3px] rounded-full bg-red-500 dark:bg-red-400/80" />
-                {tableData.entity_type === 'test' ? 'Poor Performance' : 'Offline'}
+                {tableData.entity_type === 'test' ? 'Poor Performance' : tableData.entity_type === 'ssid' ? 'Open Auth' : 'Offline'}
               </span>
             )}
           </div>
@@ -199,6 +200,12 @@ export const InteractiveTable = memo(function InteractiveTable({ tableData }: Pr
           <UplinkPopup
             metadata={popupRow.metadata as any}
             deviceName={popupRow.cells[0]}
+            onClose={closePopup}
+          />
+        ) : tableData.entity_type === 'ssid' ? (
+          <SsidPopup
+            metadata={popupRow.metadata as any}
+            ssidName={popupRow.cells[1]}
             onClose={closePopup}
           />
         ) : anchorRect ? (

@@ -22,7 +22,19 @@ const PROMPT_CATEGORIES: PromptCategory[] = [
       'Display device inventory by model across the organization',
       'Show all access points and their status across the organization',
       'List all switches in the organization',
+    ],
+  },
+  {
+    label: 'Wi-Fi Analysis',
+    source: 'meraki',
+    prompts: [
+      'Run a WiFi health check across all networks',
+      'Analyze channel utilization across the network',
+      'Show me client density per access point across the organization',
+      'Are there any rogue APs detected across the organization?',
       'List all SSIDs across all networks',
+      'Analyze RF profiles and recommend wireless optimizations',
+      'What is the band distribution of wireless clients across the organization?',
     ],
   },
   {
@@ -144,8 +156,9 @@ export function HelpMenu() {
         </span>
         <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{title}</span>
       </div>
-      {categories.map((category) => (
+      {categories.map((category, idx) => (
         <div key={category.label}>
+          {idx > 0 && <div className="border-t border-gray-200 dark:border-gray-700/50 mx-2 my-1" />}
           <div className="px-3 py-1.5">
             <span className="text-[11px] font-medium text-gray-400 dark:text-gray-400 uppercase tracking-wide">
               {category.label}

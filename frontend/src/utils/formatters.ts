@@ -17,6 +17,8 @@ export function agentDisplayName(agent: string): string {
     testing: 'Testing',
     remediation: 'Remediation',
     performance: 'Performance',
+    wifi: 'Wi-Fi Analysis',
+    vision: 'Vision Analysis',
     canvas: 'Canvas',
     orchestrator: 'Orchestrator',
   }

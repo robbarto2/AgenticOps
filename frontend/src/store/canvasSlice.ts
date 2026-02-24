@@ -63,8 +63,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             return `test:${c.data.testId}`
           case 'org_summary':
             return 'org_summary' // Only one org summary
+          case 'wifi_health':
+            return `wifi-health:${c.data.networkName}`
+          case 'ssid_detail':
+            return `ssid:${c.data.networkId}:${c.data.ssidNumber}`
           case 'topology':
             return `topology:${c.data.networkName ?? c.title}`
+          case 'pie_chart':
+            return `pie:${c.title}`
           case 'data_table':
           case 'bar_chart':
           case 'line_chart':
@@ -78,15 +84,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
       }
 
-      // Check if this card already exists
+      // Check if this card already exists — update data instead of blocking
       const newCardKey = getCardKey(card)
       if (newCardKey) {
-        const duplicate = state.cards.find(c => getCardKey(c) === newCardKey)
-        if (duplicate) {
-          // Show toast notification
-          useToastStore.getState().addToast(`Card already exists on canvas: ${card.title}`, 'warning')
-          // Don't add duplicate - just return current state
-          return state
+        const dupeIdx = state.cards.findIndex(c => getCardKey(c) === newCardKey)
+        if (dupeIdx !== -1) {
+          // Update existing card's data in-place (refresh with latest)
+          const updatedCards = [...state.cards]
+          updatedCards[dupeIdx] = { ...updatedCards[dupeIdx], data: card.data, title: card.title } as typeof card
+          const updatedNodes = state.nodes.map(n =>
+            n.id === updatedCards[dupeIdx].id
+              ? { ...n, data: updatedCards[dupeIdx] }
+              : n,
+          )
+          useToastStore.getState().addToast(`Updated: ${card.title}`, 'info')
+          return { ...state, cards: updatedCards, nodes: updatedNodes }
         }
       }
 
@@ -100,6 +112,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       if (card.type === 'line_chart' || card.type === 'bar_chart') {
         defaultHeight = 450
       }
+      if (card.type === 'pie_chart') {
+        defaultHeight = 420
+      }
       // Access point cards need more height for channel utilization display
       if (card.type === 'access_point_detail') {
         defaultHeight = 480
@@ -107,6 +122,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       // Network detail cards need more height for stats and metadata
       if (card.type === 'network_detail') {
         defaultHeight = 500
+      }
+      // WiFi health cards need height for summary metrics + AP table
+      if (card.type === 'wifi_health') {
+        defaultHeight = 480
+      }
+      // SSID detail cards
+      if (card.type === 'ssid_detail') {
+        defaultHeight = 400
       }
 
       const newNode: Node = {
@@ -501,8 +524,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const START_Y = 40
 
     const CATEGORY_ORDER: CardCategory[] = [
-      'org', 'network', 'topology', 'switch', 'access_point', 'device',
-      'test', 'alert', 'chart', 'table', 'report',
+      'org', 'network', 'topology', 'switch', 'access_point', 'ssid', 'device',
+      'test', 'alert', 'wifi', 'chart', 'table', 'report',
     ]
 
     // Build a map: category → { stackNodes, collapsedNodes, expandedNodes }
@@ -612,8 +635,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         layoutRow(compactNodes, 500, 120, compactCols)
       }
 
-      // Expanded cards in a grid (up to 3 columns)
-      const expandedCols = group.expandedNodes.length <= 2 ? group.expandedNodes.length : group.expandedNodes.length <= 6 ? 3 : 4
+      // Expanded cards in a grid — prefer 2 columns for compact layout
+      const expandedCols = group.expandedNodes.length <= 2 ? group.expandedNodes.length : group.expandedNodes.length <= 4 ? 2 : group.expandedNodes.length <= 9 ? 3 : 4
       layoutRow(group.expandedNodes, 650, 380, expandedCols)
 
       // Add gap between categories (but not after the last one)

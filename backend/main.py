@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+# Fix httpx SSL: httpx uses certifi's cert bundle instead of the system cert
+# store, which misses locally-installed CAs (e.g. Cisco/Meraki).  Point
+# certifi.where() at the system OpenSSL cert file so httpx picks it up.
+import ssl as _ssl
+_sys_cert = _ssl.get_default_verify_paths().openssl_cafile
+if _sys_cert:
+    import certifi as _certifi
+    _certifi.where = lambda: _sys_cert
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -65,4 +74,5 @@ if __name__ == "__main__":
         host=settings.host,
         port=settings.port,
         reload=True,
+        ws_max_size=50_000_000,  # 50MB for base64 image uploads
     )

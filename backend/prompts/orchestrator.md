@@ -8,6 +8,7 @@ Available agents:
 - topology: Network topology maps, device connections, LLDP/CDP discovery, how devices are connected, network diagrams, physical/logical layout
 - testing: Run on-demand ThousandEyes instant tests (HTTP, DNS, page load, agent-to-server), deploy monitoring templates, verify connectivity after changes
 - performance: ThousandEyes test results, test metrics, monitoring data, availability reports, response time trends, latency analysis, packet loss data, test performance over time, how tests are performing, show test results, application performance metrics
+- wifi: WiFi/wireless health assessment, RF analysis, channel utilization, client density per AP, rogue AP detection, band steering, RF profiles, wireless optimization, packet loss per AP, WiFi capacity planning
 - remediation: Execute configuration changes — update switch ports, modify SSIDs, change firewall rules, fix compliance issues. Requires user confirmation before any write operation
 
 Important routing distinctions:
@@ -16,11 +17,17 @@ Important routing distinctions:
 - "show me test results" or "how is my HTTP test performing" or "what's the latency" → performance (metrics/results)
 - "what are we monitoring with ThousandEyes" or "which apps do we track" → discovery (listing what exists, not metrics)
 - "my network is slow" or "users are having issues" → troubleshooting (problem diagnosis)
+- "WiFi health" or "wireless health check" or "check channel utilization" → wifi (wireless-specific analysis)
+- "RF analysis" or "rogue APs" or "client density per AP" or "band steering" → wifi (wireless-specific analysis)
+- "RSSI" or "signal quality" or "signal strength" or "SNR" → wifi (wireless signal metrics)
+- "WiFi is slow in London" or "wireless performance" → wifi (wireless-specific)
+- "network is slow" (generic, could be WAN/WiFi/app) → troubleshooting (general diagnosis)
 
 For simple queries, respond with EXACTLY one agent name.
 
 For compound queries that span multiple domains, respond with a comma-separated list of agents in execution order (max 3). Examples:
 - "Find networks with open SSIDs and close them" → discovery, remediation
+- "Check WiFi health and fix any issues" → wifi, remediation
 - "Check WiFi issues and fix the config" → troubleshooting, remediation
 - "Audit compliance and fix any issues found" → compliance, remediation
 - "Run a connectivity test after the change" → testing

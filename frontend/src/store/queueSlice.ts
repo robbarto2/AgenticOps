@@ -1,8 +1,10 @@
 import { create } from 'zustand'
+import type { ImageAttachment } from '../types/chat'
 
 export interface QueuedPrompt {
   id: string
   prompt: string
+  images?: ImageAttachment[]
   status: 'pending' | 'processing' | 'completed' | 'cancelled' | 'error'
   addedAt: number
   startedAt?: number
@@ -13,7 +15,7 @@ interface QueueState {
   queue: QueuedPrompt[]
   currentPromptId: string | null
 
-  addPrompt: (prompt: string) => string
+  addPrompt: (prompt: string, images?: ImageAttachment[]) => string
   removePrompt: (id: string) => void
   cancelPrompt: (id: string) => void
   cancelAllPending: () => void
@@ -26,11 +28,12 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   queue: [],
   currentPromptId: null,
 
-  addPrompt: (prompt: string) => {
+  addPrompt: (prompt: string, images?: ImageAttachment[]) => {
     const id = `prompt-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     const newPrompt: QueuedPrompt = {
       id,
       prompt,
+      images,
       status: 'pending',
       addedAt: Date.now(),
     }

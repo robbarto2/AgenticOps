@@ -81,6 +81,7 @@ export function OrgSummaryCard({ data }: Props) {
     status: data.health.status,
   })
   const [liveDevicesTotal, setLiveDevicesTotal] = useState(data.devices.total)
+  const [liveClientsTotal, setLiveClientsTotal] = useState(data.clients.total)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const timeAgo = useTimeAgo(lastUpdated)
 
@@ -96,6 +97,7 @@ export function OrgSummaryCard({ data }: Props) {
         const d = await res.json()
         setLiveHealth({ score: d.health_score, status: d.health_status as 'healthy' | 'warning' | 'critical' })
         setLiveDevicesTotal(d.devices_total)
+        if (d.clients_total != null) setLiveClientsTotal(d.clients_total)
         setLastUpdated(new Date())
       } catch {
         // silently keep last good data
@@ -185,7 +187,7 @@ export function OrgSummaryCard({ data }: Props) {
           disabled={!data.clients.prompt}
         >
           <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {data.clients.total.toLocaleString()}
+            <AnimatedNumber value={liveClientsTotal} />
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-300 mt-1">Connected Clients</div>
         </button>

@@ -63,6 +63,7 @@ export function BarChartCard({ data, title, source }: Props) {
           axisLine={{ stroke: axisStroke }}
         />
         <Tooltip
+          cursor={{ fill: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }}
           contentStyle={{
             backgroundColor: tooltipBg,
             border: `1px solid ${tooltipBorder}`,

@@ -3,6 +3,7 @@ export interface WebSocketOutMessage {
   content?: string
   session_id?: string
   approved?: boolean
+  images?: { dataUrl: string; mimeType: string }[]
 }
 
 export interface WebSocketInEvent {

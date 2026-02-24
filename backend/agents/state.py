@@ -24,3 +24,5 @@ class AgentState(TypedDict):
     plan_step: int  # Current index in agent_plan (0-based)
     # Remediation confirmation
     pending_confirmation: dict  # Confirmation request awaiting user approval
+    # Image support
+    has_images: bool  # Whether the current message includes image attachments

@@ -5,7 +5,7 @@ import { useQueueStore } from '../store/queueSlice'
 import { useWebSocket } from './useWebSocket'
 import type { WebSocketInEvent, AgentStartData, ToolCallData, CardData, AgentPlanData, ConfirmationRequestData } from '../types/websocket'
 import type { AnyCard } from '../types/card'
-import type { TableData } from '../types/chat'
+import type { ImageAttachment, TableData } from '../types/chat'
 
 // Timeout after 2 minutes of no response
 const RESPONSE_TIMEOUT_MS = 120000
@@ -80,6 +80,7 @@ export function useChat() {
 
         case 'card': {
           const cardData = event.data as CardData
+          console.log('[useChat] Received card event:', cardData?.type, cardData?.title)
           addCard(cardData as AnyCard)
           break
         }
@@ -157,7 +158,7 @@ export function useChat() {
 
   // Process a prompt from the queue
   const processPrompt = useCallback(
-    (promptId: string, content: string) => {
+    (promptId: string, content: string, images?: ImageAttachment[]) => {
       processingPromptIdRef.current = promptId
       setPromptStatus(promptId, 'processing')
 
@@ -166,9 +167,11 @@ export function useChat() {
         role: 'user',
         content,
         timestamp: new Date().toISOString(),
+        images,
       })
       setProcessing(true)
-      wsSend(content)
+      const wsImages = images?.map((img) => ({ dataUrl: img.dataUrl, mimeType: img.mimeType }))
+      wsSend(content, wsImages)
 
       // Set timeout to detect backend hanging
       responseTimeoutRef.current = setTimeout(() => {
@@ -194,15 +197,15 @@ export function useChat() {
     if (!isProcessing && !processingPromptIdRef.current) {
       const nextPrompt = getNextPending()
       if (nextPrompt) {
-        processPrompt(nextPrompt.id, nextPrompt.prompt)
+        processPrompt(nextPrompt.id, nextPrompt.prompt, nextPrompt.images)
       }
     }
   }, [isProcessing, queueLength, getNextPending, processPrompt])
 
   // Legacy sendMessage for backward compatibility (adds to queue)
   const sendMessage = useCallback(
-    (content: string) => {
-      useQueueStore.getState().addPrompt(content)
+    (content: string, images?: ImageAttachment[]) => {
+      useQueueStore.getState().addPrompt(content, images)
       // Processing will be triggered by the useEffect above
     },
     []

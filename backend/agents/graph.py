@@ -15,6 +15,8 @@ from agents.state import AgentState
 from agents.testing import testing_node
 from agents.topology import topology_node
 from agents.troubleshooting import troubleshooting_node
+from agents.vision import vision_node
+from agents.wifi import wifi_node
 
 
 def _route_after_specialist(state: AgentState) -> str:
@@ -81,7 +83,7 @@ def _plan_router_node(state: AgentState) -> dict:
 # All specialist agent names
 _SPECIALISTS = [
     "troubleshooting", "compliance", "security", "discovery",
-    "testing", "remediation", "topology", "performance",
+    "testing", "remediation", "topology", "performance", "wifi", "vision",
 ]
 
 # Build the multi-agent graph
@@ -98,6 +100,8 @@ graph_builder.add_node("testing", testing_node)
 graph_builder.add_node("remediation", remediation_node)
 graph_builder.add_node("topology", topology_node)
 graph_builder.add_node("performance", performance_node)
+graph_builder.add_node("wifi", wifi_node)
+graph_builder.add_node("vision", vision_node)
 graph_builder.add_node("canvas", canvas_node)
 
 # Entry point
@@ -116,6 +120,8 @@ graph_builder.add_conditional_edges(
         "remediation": "remediation",
         "topology": "topology",
         "performance": "performance",
+        "wifi": "wifi",
+        "vision": "vision",
         "canvas": "canvas",
     },
 )
@@ -141,6 +147,8 @@ graph_builder.add_conditional_edges(
         "remediation": "remediation",
         "topology": "topology",
         "performance": "performance",
+        "wifi": "wifi",
+        "vision": "vision",
         "canvas": "canvas",
         "__end__": END,
     },

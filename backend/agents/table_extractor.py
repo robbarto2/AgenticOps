@@ -42,30 +42,42 @@ _CLIENT_METHOD_NAMES = {"getNetworkClients", "getnetworkclients"}
 def _read_cached_file(filepath: str) -> list | None:
     """Read full data from a Meraki MCP cached file."""
     try:
-        # Handle relative paths - assume they're relative to Meraki Magic MCP directory
-        if not os.path.isabs(filepath):
-            # Try relative to project root first
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            full_path = os.path.join(project_root, "..", "Meraki Magic MCP", filepath)
-            if not os.path.exists(full_path):
-                # Try as absolute from current directory
-                full_path = os.path.abspath(filepath)
-        else:
-            full_path = filepath
+        # Build a list of candidate paths to try
+        candidates: list[str] = []
 
-        if not os.path.exists(full_path):
-            logger.warning("_read_cached_file: file not found: %s", full_path)
+        if os.path.isabs(filepath):
+            candidates.append(filepath)
+        else:
+            # Try relative to Meraki Magic MCP directory
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            candidates.append(os.path.join(project_root, "..", "Meraki Magic MCP", filepath))
+            # Try relative to project root
+            candidates.append(os.path.join(project_root, "..", filepath))
+            # Try as absolute from current directory
+            candidates.append(os.path.abspath(filepath))
+
+        full_path = None
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                full_path = candidate
+                break
+
+        if not full_path:
+            logger.warning("_read_cached_file: file not found (tried %d paths): %s", len(candidates), filepath)
             return None
 
         with open(full_path, 'r') as f:
             cached = json.load(f)
-            # Cached file structure: {"data": [...], "metadata": {...}}
+            # Cached file structure: {"data": [...], "metadata": {...}} or just a list
+            if isinstance(cached, list):
+                logger.info("_read_cached_file: loaded %d items (raw list) from %s", len(cached), filepath)
+                return cached
             data = cached.get("data")
             if isinstance(data, list):
                 logger.info("_read_cached_file: loaded %d items from %s", len(data), filepath)
                 return data
             else:
-                logger.warning("_read_cached_file: 'data' field is not a list in %s", filepath)
+                logger.warning("_read_cached_file: 'data' field is not a list in %s (keys: %s)", filepath, list(cached.keys())[:5])
                 return None
     except Exception as e:
         logger.error("_read_cached_file: failed to read %s: %s", filepath, e)
@@ -512,9 +524,14 @@ def _detect_network_filter(user_query: str, network_map: dict[str, str]) -> str 
     return None
 
 
-def _extract_device_status_map(tool_results: list[dict]) -> dict[str, str]:
-    """Build a serial → status map from getOrganizationDevicesStatuses results."""
-    status_map: dict[str, str] = {}
+def _extract_device_info_map(tool_results: list[dict]) -> dict[str, dict]:
+    """Build a serial → {status, lanIp} map from getOrganizationDevicesStatuses results.
+
+    Extracts both status and IP address data so they can be used as fallbacks
+    when the main device listing response doesn't include these fields
+    (common with truncated MCP responses).
+    """
+    info_map: dict[str, dict] = {}
 
     for result in tool_results:
         tool_name = result.get("tool", "")
@@ -555,14 +572,20 @@ def _extract_device_status_map(tool_results: list[dict]) -> dict[str, str]:
         for item in parsed:
             if isinstance(item, dict):
                 serial = item.get("serial", "")
+                if not serial:
+                    continue
                 status = item.get("status", "")
-                if serial and status:
-                    status_map[serial] = status
+                lan_ip = item.get("lanIp", "") or item.get("ip", "")
+                if status or lan_ip:
+                    info_map[serial] = {
+                        "status": status,
+                        "lanIp": lan_ip,
+                    }
 
-    if status_map:
-        logger.info("_extract_device_status_map: built map with %d device statuses", len(status_map))
+    if info_map:
+        logger.info("_extract_device_info_map: built map with %d device entries", len(info_map))
 
-    return status_map
+    return info_map
 
 
 def extract_device_table(tool_results: list[dict], user_query: str = "") -> list[dict]:
@@ -598,8 +621,8 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
         filter_status = ["alerting"]
         logger.info("extract_device_table: detected filter for alerting devices")
 
-    # Build serial → status map from getOrganizationDevicesStatuses results
-    device_status_map = _extract_device_status_map(tool_results)
+    # Build serial → {status, lanIp} map from getOrganizationDevicesStatuses results
+    device_info_map = _extract_device_info_map(tool_results)
 
     for result in tool_results:
         tool_name = result.get("tool", "")
@@ -662,8 +685,9 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
             model = dev.get("model", "")
             network_id = dev.get("networkId", "")
 
-            # Extract status — prefer inline status, fall back to status map
-            status = dev.get("status", "") or device_status_map.get(serial, "")
+            # Extract status and IP — prefer inline data, fall back to status endpoint map
+            device_info = device_info_map.get(serial, {})
+            status = dev.get("status", "") or device_info.get("status", "")
 
             # Apply device type filter if specified
             if filter_types and not _should_filter_device(model, filter_types):
@@ -680,7 +704,7 @@ def extract_device_table(tool_results: list[dict], user_query: str = "") -> list
                 status_filtered_count += 1
                 continue
 
-            lan_ip = dev.get("lanIp", "") or dev.get("ip", "")
+            lan_ip = dev.get("lanIp", "") or dev.get("ip", "") or device_info.get("lanIp", "")
             firmware = dev.get("firmware", "")
             tags = dev.get("tags", [])
             notes = dev.get("notes", "")
@@ -1531,6 +1555,163 @@ def extract_client_table(tool_results: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# SSID table builder
+# ---------------------------------------------------------------------------
+
+# Tool names and method names that return SSID data
+_SSID_TOOL_NAMES = {"getnetworkwirelessssids"}
+_SSID_METHOD_NAMES = {"getnetworkwirelessssids"}
+
+
+def _is_ssid_result(result: dict) -> bool:
+    """Check if a tool result contains SSID data."""
+    tool_name = result.get("tool", "")
+
+    if tool_name.lower().rstrip() in _SSID_TOOL_NAMES:
+        return True
+
+    if tool_name == "call_meraki_api":
+        args = result.get("args", {})
+        method = args.get("method", "")
+        if method.lower() in _SSID_METHOD_NAMES:
+            return True
+
+    return False
+
+
+def extract_ssid_table(tool_results: list[dict]) -> list[dict]:
+    """Find getNetworkWirelessSsids results and build structured table data.
+
+    Returns a list of table_data dicts suitable for sending as WebSocket events.
+    """
+    tables = []
+    seen_sets: set[frozenset] = set()
+    logger.info("extract_ssid_table: scanning %d tool results", len(tool_results))
+
+    # Build networkId → name lookup
+    network_name_map = _extract_network_name_map(tool_results)
+
+    all_rows = []
+    for result in tool_results:
+        if not _is_ssid_result(result):
+            continue
+
+        logger.info("extract_ssid_table: found SSID result from tool '%s'", result.get("tool", ""))
+
+        # Extract networkId from tool args
+        args = result.get("args", {})
+        network_id = (args.get("networkId") or args.get("network_id")
+                       or args.get("parameters", {}).get("networkId", ""))
+
+        raw = result.get("result", "")
+        ssids = _parse_result(raw)
+
+        if ssids is None:
+            continue
+
+        # Handle wrapped responses
+        if isinstance(ssids, dict):
+            if ssids.get("_response_truncated") and ssids.get("_full_response_cached"):
+                full_data = _read_cached_file(ssids["_full_response_cached"])
+                if full_data is not None:
+                    ssids = full_data
+                else:
+                    ssids = ssids.get("_preview") or []
+            else:
+                sample = ssids.get("data") or ssids.get("results") or ssids.get("_preview")
+                if isinstance(sample, list):
+                    ssids = sample
+                else:
+                    continue
+
+        if not isinstance(ssids, list):
+            continue
+
+        network_name = network_name_map.get(network_id, "")
+        if not network_name and network_id:
+            # Friendly fallback for raw IDs
+            import re as _re
+            if _re.match(r'^[LN]_\d', network_id):
+                network_name = f"Network ...{network_id[-4:]}"
+            else:
+                network_name = network_id
+        # Strip product type suffixes
+        if network_name:
+            import re as _re
+            network_name = _re.sub(r'\s*-\s*(wireless|appliance|switch|camera|sensor)$', '', network_name, flags=_re.I)
+
+        for ssid in ssids:
+            if not isinstance(ssid, dict):
+                continue
+
+            name = ssid.get("name", "")
+            number = ssid.get("number", 0)
+            enabled = ssid.get("enabled", False)
+            auth_mode = ssid.get("authMode", "")
+            encryption = ssid.get("encryptionMode", "")
+            band = ssid.get("bandSelection", "")
+            vlan = ssid.get("defaultVlanId") or ssid.get("vlanId")
+            ip_assignment = ssid.get("ipAssignmentMode", "")
+
+            # Skip unconfigured placeholder SSIDs (default "Unconfigured SSID N")
+            if name.startswith("Unconfigured SSID"):
+                continue
+
+            # Determine row status
+            is_open = auth_mode.lower() == "open" if auth_mode else False
+            if is_open and enabled:
+                status_type = "error"
+            elif not enabled:
+                status_type = "warning"
+            else:
+                status_type = "normal"
+
+            row_id = f"{network_id}:{number}" if network_id else f"ssid:{number}"
+            all_rows.append({
+                "id": row_id,
+                "cells": [
+                    network_name or "\u2014",
+                    name,
+                    "Yes" if enabled else "No",
+                    auth_mode or "\u2014",
+                    band or "\u2014",
+                    str(vlan) if vlan is not None else "\u2014",
+                ],
+                "status_type": status_type,
+                "metadata": {
+                    "networkId": network_id,
+                    "networkName": network_name,
+                    "ssidNumber": number,
+                    "ssidName": name,
+                    "enabled": enabled,
+                    "authMode": auth_mode or None,
+                    "encryptionMode": encryption or None,
+                    "bandSelection": band or None,
+                    "vlanId": vlan,
+                    "ipAssignmentMode": ip_assignment or None,
+                },
+            })
+
+    if all_rows:
+        row_ids = frozenset(r["id"] for r in all_rows)
+        if row_ids not in seen_sets:
+            seen_sets.add(row_ids)
+            table = {
+                "table_id": f"tbl-{uuid.uuid4().hex[:8]}",
+                "entity_type": "ssid",
+                "source": "meraki",
+                "columns": ["Network", "SSID Name", "Enabled", "Auth Mode", "Band", "VLAN"],
+                "rows": all_rows,
+            }
+            tables.append(table)
+            logger.info("extract_ssid_table: built table with %d rows (id=%s)", len(all_rows), table["table_id"])
+    else:
+        logger.info("extract_ssid_table: no SSID tables extracted from tool results")
+
+    return tables
+
+
+# ---------------------------------------------------------------------------
 # Topology card builder
 # ---------------------------------------------------------------------------
 
@@ -1748,7 +1929,7 @@ def extract_topology_card(tool_results: list[dict]) -> dict | None:
             name_to_serial[name.lower()] = serial
 
     # 3. Build status map (from getOrganizationDevicesStatuses if available)
-    status_map = _extract_device_status_map(tool_results)
+    device_info_map = _extract_device_info_map(tool_results)
 
     # 4. Build nodes
     nodes: list[dict] = []
@@ -1759,7 +1940,7 @@ def extract_topology_card(tool_results: list[dict]) -> dict | None:
         model = d.get("model", "")
         device_type = _model_to_topology_type(model)
         # Prefer status from status map, fall back to device data, then default
-        status = (status_map.get(serial) or d.get("status") or "online").lower()
+        status = (device_info_map.get(serial, {}).get("status") or d.get("status") or "online").lower()
         if status not in ("online", "offline", "dormant"):
             status = "online"
         nodes.append({

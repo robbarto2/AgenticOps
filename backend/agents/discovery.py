@@ -16,7 +16,7 @@ from agents.state import AgentState
 from agents.stream_util import AGENT_LOOP_TIMEOUT_SEC, FORCE_SUMMARY_PROMPT, execute_tools_parallel, needs_forced_summary, safe_writer
 from agents.table_extractor import (
     extract_network_table, extract_device_table, extract_test_table, extract_client_table,
-    extract_uplink_table, _extract_network_device_counts, _detect_network_health_filter,
+    extract_uplink_table, extract_ssid_table, _extract_network_device_counts, _detect_network_health_filter,
     _parse_result, ensure_agent_list,
 )
 from agents.tools import build_langchain_tools
@@ -202,6 +202,13 @@ async def discovery_node(state: AgentState, writer: StreamWriter) -> dict:
                         summary += f" {alerting} device{'s' if alerting != 1 else ''} alerting ({online}/{total} online)."
 
             response = AIMessage(content=summary, id=response.id)
+    elif _is_ssid_listing_query(query):
+        table_data = extract_ssid_table(tool_results)
+        logger.info("Discovery node: extracted %d SSID table_data entries from %d tool_results",
+                     len(table_data), len(tool_results))
+        if table_data and response:
+            n_ssids = sum(len(t.get("rows", [])) for t in table_data)
+            response = AIMessage(content=f"Found **{n_ssids} SSIDs**.", id=response.id)
     elif _is_client_listing_query(query):
         table_data = extract_client_table(tool_results)
         logger.info("Discovery node: extracted %d client table_data entries from %d tool_results",
@@ -519,6 +526,11 @@ _TEST_LISTING_RE = re.compile(
     re.IGNORECASE,
 )
 
+_SSID_LISTING_RE = re.compile(
+    r"\b(list|show|get|what\s+(are\s+)?(all\s+)?(the\s+)?)\b.*(ssid|wireless\s+network)s?\b",
+    re.IGNORECASE,
+)
+
 _UPLINK_QUERY_RE = re.compile(
     r"\b(uplinks?|wan\s+status|wan\s+uplinks?|uplinks?\s+status)\b",
     re.IGNORECASE,
@@ -563,6 +575,13 @@ def _is_test_listing_query(query: str) -> bool:
         return False
     # Must mention listing + test/tests/monitoring
     return bool(_TEST_LISTING_RE.search(query))
+
+
+def _is_ssid_listing_query(query: str) -> bool:
+    """Return True if the user is asking for a list of SSIDs."""
+    if _HEALTH_SUMMARY_RE.search(query):
+        return False
+    return bool(_SSID_LISTING_RE.search(query))
 
 
 def _is_uplink_query(query: str) -> bool:

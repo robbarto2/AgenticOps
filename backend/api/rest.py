@@ -71,7 +71,10 @@ async def org_health() -> OrgHealthResponse:
         raise HTTPException(status_code=503, detail="Meraki MCP not connected")
 
     try:
-        result = await mcp_manager.call_tool(
+        import asyncio
+
+        # Fetch device statuses and client overview in parallel
+        devices_coro = mcp_manager.call_tool(
             "call_meraki_api",
             {
                 "section": "organizations",
@@ -80,7 +83,23 @@ async def org_health() -> OrgHealthResponse:
             },
             skip_cache=True,
         )
+        clients_coro = mcp_manager.call_tool(
+            "call_meraki_api",
+            {
+                "section": "organizations",
+                "method": "getOrganizationClientsOverview",
+                "parameters": {"timespan": 86400},  # Last 24 hours
+            },
+            skip_cache=True,
+        )
 
+        result, clients_result = await asyncio.gather(
+            devices_coro, clients_coro, return_exceptions=True
+        )
+
+        # Handle device status result
+        if isinstance(result, Exception):
+            raise HTTPException(status_code=502, detail=str(result))
         if "error" in result:
             raise HTTPException(status_code=502, detail=result["error"])
 
@@ -112,6 +131,33 @@ async def org_health() -> OrgHealthResponse:
         else:
             health_status = "critical"
 
+        # Parse client count
+        clients_total = None
+        if isinstance(clients_result, dict) and "error" not in clients_result:
+            clients_parsed = _parse_json(clients_result.get("content", ""))
+            if isinstance(clients_parsed, dict):
+                # getOrganizationClientsOverview returns { "counts": { "total": N } } or { "usage": { "overall": { "total": N } } }
+                counts = clients_parsed.get("counts", {})
+                if isinstance(counts, dict) and "total" in counts:
+                    clients_total = counts["total"]
+                else:
+                    # Try alternative structures
+                    usage = clients_parsed.get("usage", {})
+                    if isinstance(usage, dict):
+                        overall = usage.get("overall", {})
+                        if isinstance(overall, dict) and "total" in overall:
+                            clients_total = overall["total"]
+                    # If the response is just a number at top level
+                    if clients_total is None and "total" in clients_parsed:
+                        clients_total = clients_parsed["total"]
+            elif isinstance(clients_parsed, list):
+                # If it returns a list of clients, count them
+                clients_total = len(clients_parsed)
+            if clients_total is not None:
+                logger.info("org_health: client count = %d", clients_total)
+        elif isinstance(clients_result, Exception):
+            logger.warning("org_health: client count fetch failed: %s", clients_result)
+
         from datetime import datetime, timezone
 
         return OrgHealthResponse(
@@ -122,6 +168,7 @@ async def org_health() -> OrgHealthResponse:
             devices_alerting=alerting,
             devices_dormant=dormant,
             devices_total=total,
+            clients_total=clients_total,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
     except HTTPException:

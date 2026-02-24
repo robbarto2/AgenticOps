@@ -55,11 +55,13 @@ export function useWebSocket(onMessage: (event: WebSocketInEvent) => void) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const sendMessage = useCallback((content: string) => {
+  const sendMessage = useCallback((content: string, images?: { dataUrl: string; mimeType: string }[]) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({ type: 'user_message', content, session_id: 'default' })
-      )
+      const payload: Record<string, unknown> = { type: 'user_message', content, session_id: 'default' }
+      if (images && images.length > 0) {
+        payload.images = images.map((img) => ({ dataUrl: img.dataUrl, mimeType: img.mimeType }))
+      }
+      wsRef.current.send(JSON.stringify(payload))
     }
   }, [])
 

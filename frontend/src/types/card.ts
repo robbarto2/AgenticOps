@@ -12,6 +12,9 @@ export type CardType =
   | 'device_detail'
   | 'test_detail'
   | 'topology'
+  | 'wifi_health'
+  | 'ssid_detail'
+  | 'pie_chart'
 
 export interface CardBase {
   id: string
@@ -303,6 +306,80 @@ export interface TopologyCard extends CardBase {
   }
 }
 
+export interface WifiMetricDetail {
+  label: string
+  value: string
+  status?: 'healthy' | 'warning' | 'critical'
+}
+
+export interface WifiSummaryMetric {
+  label: string
+  value: string
+  status: 'healthy' | 'warning' | 'critical'
+  details?: WifiMetricDetail[]
+}
+
+export interface WifiClientInfo {
+  description: string
+  ip: string
+  mac: string
+  vlan?: number
+  ssid: string
+  os: string
+  usage: number
+}
+
+export interface WifiAccessPoint {
+  name: string
+  status: 'online' | 'offline' | 'alerting'
+  clients: number
+  channelUtil24: number | null
+  channelUtil5: number | null
+  clientList?: WifiClientInfo[]
+}
+
+export interface WifiHealthCard extends CardBase {
+  type: 'wifi_health'
+  data: {
+    networkName: string
+    overallStatus: 'healthy' | 'warning' | 'critical'
+    summary: WifiSummaryMetric[]
+    accessPoints: WifiAccessPoint[]
+  }
+}
+
+export interface SsidDetailCard extends CardBase {
+  type: 'ssid_detail'
+  data: {
+    ssidNumber: number
+    ssidName: string
+    networkId: string
+    networkName?: string
+    enabled: boolean
+    authMode?: string
+    encryptionMode?: string
+    bandSelection?: string
+    vlanId?: number
+    ipAssignmentMode?: string
+    minBitrate?: number
+    perClientBandwidthLimitUp?: number
+    perClientBandwidthLimitDown?: number
+  }
+}
+
+export interface PieSegment {
+  label: string
+  value: number
+  color: string
+}
+
+export interface PieChartCard extends CardBase {
+  type: 'pie_chart'
+  data: {
+    segments: PieSegment[]
+  }
+}
+
 export type AnyCard =
   | DataTableCard
   | BarChartCard
@@ -317,3 +394,6 @@ export type AnyCard =
   | DeviceDetailCard
   | TestDetailCard
   | TopologyCard
+  | WifiHealthCard
+  | SsidDetailCard
+  | PieChartCard

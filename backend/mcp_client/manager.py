@@ -496,6 +496,21 @@ _PERFORMANCE_TOOLS = {
     "get_method_info",
 }
 
+_WIFI_TOOLS = {
+    # Meraki — network/device lookup
+    "getOrganizationNetworks",
+    "getNetworkDevices",
+    "getOrganizationDevicesStatuses",
+    "getNetworkWirelessSsids",
+    "getNetworkClients",
+    "getDevice",
+    # Meraki — dynamic API access for wireless-specific methods
+    "call_meraki_api",
+    # NOTE: search_methods / get_method_info intentionally excluded —
+    # skill files already list the exact methods; including these wastes
+    # LLM iterations on API schema exploration.
+}
+
 _AGENT_TOOL_ALLOWLIST: dict[str, set[str]] = {
     "discovery": _DISCOVERY_TOOLS,
     "troubleshooting": _TROUBLESHOOTING_TOOLS,
@@ -505,6 +520,7 @@ _AGENT_TOOL_ALLOWLIST: dict[str, set[str]] = {
     "remediation": _REMEDIATION_TOOLS,
     "topology": _TOPOLOGY_TOOLS,
     "performance": _PERFORMANCE_TOOLS,
+    "wifi": _WIFI_TOOLS,
 }
 
 

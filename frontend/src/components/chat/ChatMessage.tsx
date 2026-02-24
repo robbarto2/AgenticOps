@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useMemo, memo } from 'react'
+import { useState, useRef, useCallback, useMemo, useEffect, memo } from 'react'
+import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { formatTimestamp, agentDisplayName } from '../../utils/formatters'
@@ -41,7 +42,18 @@ export const ChatMessage = memo(function ChatMessage({ message }: Props) {
   const isUser = message.role === 'user'
   const hasTableData = message.tableData && message.tableData.length > 0
   const [popupData, setPopupData] = useState<{ headers: string[]; cells: string[] } | null>(null)
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const proseRef = useRef<HTMLDivElement>(null)
+
+  // Close lightbox on Escape
+  useEffect(() => {
+    if (!lightboxSrc) return
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxSrc(null)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [lightboxSrc])
 
   const handleProseClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // Walk up from click target to find a <td> inside a <tbody>
@@ -105,6 +117,38 @@ export const ChatMessage = memo(function ChatMessage({ message }: Props) {
               {formatTimestamp(message.timestamp)}
             </span>
           </div>
+
+          {/* User-attached images */}
+          {message.images && message.images.length > 0 && (
+            <div className={`grid gap-2 mb-2 ${message.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              {message.images.map((img) => (
+                <img
+                  key={img.id}
+                  src={img.dataUrl}
+                  alt={img.fileName}
+                  title={img.fileName}
+                  onClick={() => setLightboxSrc(img.dataUrl)}
+                  className="max-h-48 rounded-lg cursor-pointer border border-gray-300 dark:border-gray-700 hover:border-blue-500 transition-colors object-cover"
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Lightbox overlay */}
+          {lightboxSrc && createPortal(
+            <div
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-pointer"
+              onClick={() => setLightboxSrc(null)}
+            >
+              <img
+                src={lightboxSrc}
+                alt="Full size"
+                className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>,
+            document.body
+          )}
 
           {/* Markdown content */}
           <div

@@ -16,6 +16,7 @@ AGENT_SKILLS: dict[str, list[str]] = {
         "wan_performance.md",
         "client_troubleshooting.md",
         "application_performance.md",
+        "performance_degradation_analysis.md",
     ],
     "compliance": [
         "config_audit.md",
@@ -47,16 +48,31 @@ AGENT_SKILLS: dict[str, list[str]] = {
         "performance_monitoring.md",
         "application_performance.md",
     ],
+    "wifi": [
+        "wifi_health_assessment.md",
+        "rf_analysis.md",
+        "wifi_client_analysis.md",
+        "rogue_ap_detection.md",
+    ],
 }
+
+
+# Module-level cache: skills never change at runtime, so read once from disk.
+_SKILL_CACHE: dict[str, str] = {}
 
 
 def load_skills_for_agent(agent_type: str) -> str:
     """Load and concatenate skill files for a given agent type.
 
     Returns a formatted string to be injected into the agent's system prompt.
+    Results are cached at module level to avoid repeated disk I/O.
     """
+    if agent_type in _SKILL_CACHE:
+        return _SKILL_CACHE[agent_type]
+
     skill_files = AGENT_SKILLS.get(agent_type, [])
     if not skill_files:
+        _SKILL_CACHE[agent_type] = ""
         return ""
 
     sections = []
@@ -70,9 +86,12 @@ def load_skills_for_agent(agent_type: str) -> str:
             logger.warning("Skill file not found: %s", filepath)
 
     if not sections:
+        _SKILL_CACHE[agent_type] = ""
         return ""
 
-    return "\n\n## Available Skills\n\n" + "\n\n---\n\n".join(sections)
+    result = "\n\n## Available Skills\n\n" + "\n\n---\n\n".join(sections)
+    _SKILL_CACHE[agent_type] = result
+    return result
 
 
 def list_skills() -> list[dict[str, str]]:

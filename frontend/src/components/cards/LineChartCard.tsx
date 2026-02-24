@@ -61,6 +61,7 @@ export function LineChartCard({ data, title, source }: Props) {
   // Detect unit for Y axis
   const yUnit = useMemo(() => {
     const label = data.datasets[0]?.label?.toLowerCase() ?? ''
+    if (label.includes('dbm')) return ' dBm'
     if (label.includes('ms') || label.includes('time') || label.includes('latency')) return 'ms'
     if (label.includes('%') || label.includes('loss') || label.includes('avail')) return '%'
     return ''

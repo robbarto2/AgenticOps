@@ -1,3 +1,10 @@
+export interface ImageAttachment {
+  id: string
+  dataUrl: string   // "data:image/png;base64,..."
+  fileName: string
+  mimeType: string  // "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -6,6 +13,7 @@ export interface ChatMessage {
   agentName?: string
   toolCalls?: ToolCallEvent[]
   tableData?: TableData[]
+  images?: ImageAttachment[]
 }
 
 export interface ToolCallEvent {
