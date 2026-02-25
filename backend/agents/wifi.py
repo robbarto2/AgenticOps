@@ -86,7 +86,11 @@ async def wifi_node(state: AgentState, writer: StreamWriter) -> dict:
     is_client_density_direct = bool(_CLIENT_DENSITY_PATTERN.search(query))
     is_other_wifi_direct = bool(_OTHER_WIFI_PATTERN.search(query))
     any_direct = is_band_dist_direct or is_rssi_direct or is_cu_direct or is_health_direct or is_rogue_direct or is_client_density_direct or is_other_wifi_direct
-    short_query = len(query.split()) <= 10
+    # Follow-up queries are short, ambiguous messages like "London" or "for 5GHz",
+    # not full analytical requests.  Cap at 5 words to avoid misclassifying
+    # complex queries (e.g. "Analyze RF profiles and recommend wireless optimizations")
+    # as follow-ups to unrelated fast-paths from earlier in the conversation.
+    short_query = len(query.split()) <= 5 and not _COMPLEX_INTENT_PATTERN.search(query)
 
     # ---- Fast path: band distribution queries need NO LLM ----
     is_band_dist_followup = (
@@ -1031,6 +1035,7 @@ def _build_health_summary(tool_results: list[dict], target_name: str | None) -> 
             if not isinstance(item, dict):
                 continue
             net = item.get("network", {})
+            net_id = net.get("id", "") if isinstance(net, dict) else ""
             name = net.get("name", "") if isinstance(net, dict) else ""
             name = re.sub(r'\s*-\s*(wireless|appliance|switch|camera|sensor)$', '', name, flags=re.I)
             by_band = item.get("byBand", [])
@@ -1047,7 +1052,7 @@ def _build_health_summary(tool_results: list[dict], target_name: str | None) -> 
                     u5 = pct
                 elif band.startswith("6"):
                     u6 = pct
-            cu_data.append({"name": name, "u24": round(u24, 1), "u5": round(u5, 1), "u6": round(u6, 1)})
+            cu_data.append({"name": name, "net_id": net_id, "u24": round(u24, 1), "u5": round(u5, 1), "u6": round(u6, 1)})
 
     # Parse packet loss by network
     pl_map: dict[str, float] = {}
@@ -1071,25 +1076,103 @@ def _build_health_summary(tool_results: list[dict], target_name: str | None) -> 
             if name:
                 pl_map[name] = round(loss, 2)
 
-    # --- Single-network summary (brief — the wifi_health card has all details) ---
+    # --- Parse client counts from getNetworkClients results ---
+    client_map: dict[str, int] = {}  # network_name → client count
+    for tr in tool_results:
+        tool_name = tr.get("tool", "")
+        if tool_name != "getNetworkClients":
+            continue
+        args = tr.get("args") or {}
+        net_id = args.get("networkId", "")
+        parsed = _parse_wifi_result(tr.get("result"))
+        count = len(parsed) if isinstance(parsed, list) else 0
+        # Resolve network name from net_id via cu_data or net_name_map
+        name = ""
+        for cd in cu_data:
+            if cd.get("net_id") == net_id:
+                name = cd["name"]
+                break
+        if not name:
+            # Try matching via the network list in tool_results
+            for tr2 in tool_results:
+                if tr2.get("tool") != "getOrganizationNetworks":
+                    continue
+                nets = _parse_wifi_result(tr2.get("result"))
+                if isinstance(nets, list):
+                    for n in nets:
+                        if isinstance(n, dict) and n.get("id") == net_id:
+                            name = n.get("name", "")
+                            name = re.sub(r'\s*-\s*(wireless|appliance|switch|camera|sensor)$', '', name, flags=re.I)
+                            break
+                break
+        if name:
+            client_map[name] = count
+
+    total_clients = sum(client_map.values())
+
+    # --- Single-network summary ---
     if target_name:
         entry = next((c for c in cu_data if c["name"] == target_name), None)
         pl = pl_map.get(target_name, 0)
-        parts = [f"Here's the WiFi health analysis for **{target_name}**."]
+        clients = client_map.get(target_name, 0)
+        parts = [f"### WiFi Health — {target_name}"]
         if entry:
-            issues = []
-            if entry["u24"] > 50:
-                issues.append(f"2.4 GHz channel utilization is {'critical' if entry['u24'] > 60 else 'elevated'} at {entry['u24']}%")
-            if entry["u5"] > 60:
-                issues.append(f"5 GHz channel utilization is {'critical' if entry['u5'] > 70 else 'elevated'} at {entry['u5']}%")
-            if entry.get("u6", 0) > 60:
-                issues.append(f"6 GHz channel utilization is {'critical' if entry['u6'] > 70 else 'elevated'} at {entry['u6']}%")
-            if pl > 1:
-                issues.append(f"packet loss is {'critical' if pl > 3 else 'elevated'} at {pl}%")
+            # Band utilization breakdown
+            bands: list[str] = []
+            if entry["u24"] > 0:
+                level = "critical" if entry["u24"] > 60 else ("elevated" if entry["u24"] > 50 else "healthy")
+                bands.append(f"2.4 GHz at **{entry['u24']}%** ({level})")
+            if entry["u5"] > 0:
+                level = "critical" if entry["u5"] > 70 else ("elevated" if entry["u5"] > 60 else "healthy")
+                bands.append(f"5 GHz at **{entry['u5']}%** ({level})")
+            if entry.get("u6", 0) > 0:
+                level = "critical" if entry["u6"] > 70 else ("elevated" if entry["u6"] > 60 else "healthy")
+                bands.append(f"6 GHz at **{entry['u6']}%** ({level})")
+            if bands:
+                parts.append("**Channel Utilization**: " + " | ".join(bands))
+
+            if pl > 0:
+                level = "critical" if pl > 3 else ("elevated" if pl > 1 else "normal")
+                parts.append(f"**Packet Loss**: {pl}% ({level})")
+
+            if clients:
+                parts.append(f"**Connected Clients**: {clients}")
+
+            # Analysis
+            issues: list[str] = []
+            if entry["u24"] > 60:
+                issues.append(f"2.4 GHz is severely congested at {entry['u24']}% — clients on this band will experience slow speeds, high latency, and connection drops. This is common in dense environments where many legacy and IoT devices default to 2.4 GHz.")
+            elif entry["u24"] > 50:
+                issues.append(f"2.4 GHz utilization is elevated at {entry['u24']}%. Performance may degrade during peak hours.")
+            if entry["u5"] > 70:
+                issues.append(f"5 GHz is heavily congested at {entry['u5']}% — this is unusual and suggests either co-channel interference from neighboring APs or an extremely high client density.")
+            elif entry["u5"] > 60:
+                issues.append(f"5 GHz utilization is elevated at {entry['u5']}%. Monitor for degradation during peak periods.")
+            if pl > 3:
+                issues.append(f"Packet loss at {pl}% is critically high — users will see intermittent connectivity, slow page loads, and dropped video/voice calls.")
+            elif pl > 1:
+                issues.append(f"Packet loss at {pl}% is above normal — may cause occasional retransmissions and slight latency increases.")
+
             if issues:
-                parts.append("**Findings**: " + "; ".join(issues) + ".")
+                parts.append("**Analysis**\n" + "\n".join(f"- {i}" for i in issues))
             else:
-                parts.append("All metrics are within healthy thresholds.")
+                parts.append("All metrics are within healthy thresholds — no issues detected.")
+
+            # Recommendations
+            recs: list[str] = []
+            if entry["u24"] > 50:
+                recs.append("Enable or verify **band steering** to move capable clients from 2.4 GHz to 5/6 GHz")
+                if entry["u24"] > 60:
+                    recs.append("Consider reducing 2.4 GHz transmit power or disabling it on select APs to reduce co-channel interference")
+            if entry["u5"] > 60:
+                recs.append("Review AP placement and channel assignments to reduce 5 GHz co-channel interference")
+            if pl > 1:
+                recs.append("Investigate sources of interference (non-WiFi devices, radar, neighboring networks) using RF spectrum analysis")
+            if clients and clients > 50:
+                recs.append(f"With {clients} clients connected, ensure AP density is sufficient — target no more than 25-30 clients per AP")
+            if recs:
+                parts.append("**Recommendations**\n" + "\n".join(f"- {r}" for r in recs))
+
         return "\n\n".join(parts)
 
     # --- Org-wide summary ---
@@ -1103,6 +1186,7 @@ def _build_health_summary(tool_results: list[dict], target_name: str | None) -> 
     for nd in cu_data:
         name = nd["name"] or "Unknown"
         pl = pl_map.get(name, 0)
+        clients = client_map.get(name, 0)
         issues: list[str] = []
         status = "healthy"
 
@@ -1121,7 +1205,7 @@ def _build_health_summary(tool_results: list[dict], target_name: str | None) -> 
         if pl > 1:
             issues.append(f"loss {pl}%")
 
-        entry = {"name": name, "issues": issues}
+        entry = {"name": name, "issues": issues, "u24": nd["u24"], "u5": nd["u5"], "u6": u6, "pl": pl, "clients": clients}
         if status == "critical":
             critical_nets.append(entry)
         elif status == "warning":
@@ -1130,17 +1214,90 @@ def _build_health_summary(tool_results: list[dict], target_name: str | None) -> 
             healthy_nets.append(entry)
 
     total = len(cu_data)
-    parts = [f"Analyzed **{total}** wireless network{'s' if total != 1 else ''} across the organization."]
 
+    # Org-wide averages
+    avg_24 = round(sum(d["u24"] for d in cu_data) / total, 1) if total else 0
+    avg_5 = round(sum(d["u5"] for d in cu_data) / total, 1) if total else 0
+    avg_pl = round(sum(pl_map.get(d["name"], 0) for d in cu_data) / total, 2) if total else 0
+
+    parts = [f"### WiFi Health — Organization Overview"]
+    parts.append(f"Analyzed **{total}** wireless network{'s' if total != 1 else ''} "
+                 f"— **{len(critical_nets)}** critical, **{len(warning_nets)}** warning, **{len(healthy_nets)}** healthy."
+                 + (f" **{total_clients}** total clients connected." if total_clients else ""))
+
+    # Org averages
+    parts.append(f"**Org Averages**: 2.4 GHz utilization {avg_24}% | 5 GHz utilization {avg_5}% | Packet loss {avg_pl}%")
+
+    # Critical networks — detailed
     if critical_nets:
-        items = [f"**{e['name']}** ({', '.join(e['issues'])})" if e["issues"] else f"**{e['name']}**" for e in critical_nets]
-        parts.append(f"**{len(critical_nets)} critical**: {', '.join(items)}")
+        lines = [f"**Critical Networks ({len(critical_nets)})**"]
+        for e in critical_nets:
+            detail = f"- **{e['name']}** — "
+            metrics: list[str] = []
+            if e["u24"] > 50:
+                metrics.append(f"2.4 GHz at {e['u24']}%")
+            if e["u5"] > 60:
+                metrics.append(f"5 GHz at {e['u5']}%")
+            if e["u6"] > 60:
+                metrics.append(f"6 GHz at {e['u6']}%")
+            if e["pl"] > 1:
+                metrics.append(f"packet loss {e['pl']}%")
+            if e["clients"]:
+                metrics.append(f"{e['clients']} clients")
+            detail += ", ".join(metrics) if metrics else "elevated metrics"
+            lines.append(detail)
+        parts.append("\n".join(lines))
+
+    # Warning networks — brief
     if warning_nets:
-        items = [f"**{e['name']}** ({', '.join(e['issues'])})" if e["issues"] else f"**{e['name']}**" for e in warning_nets]
-        parts.append(f"**{len(warning_nets)} warning**: {', '.join(items)}")
+        lines = [f"**Warning Networks ({len(warning_nets)})**"]
+        for e in warning_nets:
+            metrics = []
+            if e["u24"] > 50:
+                metrics.append(f"2.4 GHz {e['u24']}%")
+            if e["u5"] > 60:
+                metrics.append(f"5 GHz {e['u5']}%")
+            if e["pl"] > 1:
+                metrics.append(f"loss {e['pl']}%")
+            lines.append(f"- **{e['name']}** — {', '.join(metrics)}" if metrics else f"- **{e['name']}**")
+        parts.append("\n".join(lines))
+
+    # Healthy networks — compact list
     if healthy_nets:
         names = [e["name"] for e in healthy_nets]
-        parts.append(f"**{len(healthy_nets)} healthy**: {', '.join(names)}")
+        parts.append(f"**Healthy Networks ({len(healthy_nets)})**: {', '.join(names)}")
+
+    # Key findings
+    findings: list[str] = []
+    high_24 = [e for e in critical_nets + warning_nets if e["u24"] > 50]
+    if high_24:
+        findings.append(f"**{len(high_24)} network{'s' if len(high_24) != 1 else ''} with high 2.4 GHz utilization** — "
+                        "this band is the most common bottleneck due to limited non-overlapping channels (1, 6, 11) "
+                        "and heavy use by legacy/IoT devices. Networks above 60% will see noticeable client performance degradation.")
+    high_loss = [e for e in critical_nets + warning_nets if e["pl"] > 1]
+    if high_loss:
+        findings.append(f"**{len(high_loss)} network{'s' if len(high_loss) != 1 else ''} with elevated packet loss** — "
+                        "this can indicate RF interference, co-channel contention, or overloaded APs. "
+                        "Clients experience retransmissions and increased latency.")
+    if avg_5 > 50:
+        findings.append(f"Org-wide 5 GHz average is high at {avg_5}% — consider reviewing DFS channel usage and AP density.")
+    if findings:
+        parts.append("**Key Findings**\n" + "\n".join(f"- {f}" for f in findings))
+
+    # Recommendations
+    recs: list[str] = []
+    if high_24:
+        recs.append("Enable **band steering** on critical networks to shift capable clients to 5/6 GHz")
+    if any(e["u24"] > 70 for e in critical_nets):
+        recs.append("For networks above 70% on 2.4 GHz, consider **reducing 2.4 GHz power** or disabling it on select APs")
+    if high_loss:
+        recs.append("Run **RF spectrum analysis** on networks with high packet loss to identify interference sources")
+    if total_clients and total > 0:
+        avg_clients = total_clients // total
+        if avg_clients > 40:
+            recs.append(f"Average of {avg_clients} clients per network — review AP-to-client ratios and consider adding APs in dense locations")
+    if recs:
+        parts.append("**Recommendations**\n" + "\n".join(f"- {r}" for r in recs))
 
     return "\n\n".join(parts)
 
@@ -1285,6 +1442,15 @@ _CLIENT_DENSITY_PATTERN = re.compile(
     r"|clients?\s+per\s+(ap|access\s+point|network)"
     r"|how\s+many\s+clients"
     r")\b",
+    re.IGNORECASE,
+)
+
+# Queries with clear analytical / complex intent that should ALWAYS go to the
+# LLM loop, never be treated as a follow-up to a previous fast-path topic.
+_COMPLEX_INTENT_PATTERN = re.compile(
+    r"\b(analy[zs]\w*|recommend\w*|troubleshoot\w*|investigat\w*|diagnos\w*|optimiz\w*"
+    r"|compar\w*|explain\w*|assess\w*|audit\w*|review\w*|evaluat\w*|improv\w*|configur\w*"
+    r"|profile\w*|best\s+practice|what\s+should|how\s+(can|should|do)\s+i)\b",
     re.IGNORECASE,
 )
 
