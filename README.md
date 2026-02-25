@@ -89,26 +89,21 @@ The project expects a Meraki MCP server at the path specified by `MERAKI_MCP_SCR
 
 ## Running
 
-Start both the backend and frontend in separate terminals:
-
-**Backend** (from the `backend/` directory):
+From the project root:
 
 ```bash
-source .venv/bin/activate
-python main.py
+./restart.sh
 ```
 
-The backend runs on `http://localhost:8080` with hot-reload enabled.
+This stops any existing instances, starts both the backend (port 8080) and frontend (port 5173), and verifies they're healthy. Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-**Frontend** (from the `frontend/` directory):
+Logs are written to `/tmp/agenticops-backend.log` and `/tmp/agenticops-frontend.log`.
+
+To stop:
 
 ```bash
-npm run dev
+lsof -ti:8080 | xargs kill && lsof -ti:5173 | xargs kill
 ```
-
-The frontend runs on `http://localhost:5173`. Vite proxies `/api` and `/ws` requests to the backend automatically.
-
-Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## Project Structure
 
