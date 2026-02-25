@@ -21,6 +21,7 @@ from api.rest import router as rest_router
 from api.websocket import router as ws_router
 from api.health import router as health_router
 from api.devices import router as devices_router
+from api.settings import router as settings_router
 from mcp_client.manager import mcp_manager
 
 logging.basicConfig(
@@ -61,6 +62,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(rest_router)
 app.include_router(devices_router)
+app.include_router(settings_router)
 app.include_router(ws_router)
 
 

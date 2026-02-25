@@ -37,36 +37,24 @@ git clone <repo-url>
 cd AgenticOps
 ```
 
-### 2. Configure environment variables
+### 2. Configure API keys
 
-Copy the sample env file and fill in your API keys:
+On first launch, AgenticOps detects that no `.env` file exists and opens a setup wizard in the browser. Enter your API keys in the modal and click **Connect** — the app writes the `.env` file, reloads configuration, and connects to the MCP servers automatically.
 
-```bash
-cp ".env sample" .env
-```
+| Field | Required | Where to get it |
+|-------|----------|-----------------|
+| Claude API Key | Yes | [console.anthropic.com](https://console.anthropic.com/) → API Keys |
+| Meraki API Key | Yes | Meraki Dashboard → My Profile → API access |
+| Meraki Organization ID | Yes | Meraki Dashboard → Organization → Settings (numeric ID in the URL) |
+| ThousandEyes Token | No | ThousandEyes → Account Settings → Users and Roles → OAuth Bearer Token |
 
-Edit `.env` and set at minimum:
+The Anthropic and Meraki keys are required. ThousandEyes is optional — without it, ThousandEyes-powered features (instant tests, performance metrics, path visualization) will be unavailable.
 
-```env
-# Required -- Claude powers all the agents
-ANTHROPIC_API_KEY=sk-ant-...
+To update keys later, click the **gear icon** in the top bar to reopen the setup modal. Existing values are shown masked; leave a field empty to keep its current value.
 
-# Meraki MCP server paths (adjust to your local paths)
-MERAKI_MCP_SCRIPT=./Meraki Magic MCP/meraki-mcp-dynamic.py
-MERAKI_MCP_VENV_FASTMCP=./backend/.venv/bin/fastmcp
+You can also edit the `.env` file directly at the project root — restart the backend to pick up changes.
 
-# Meraki API credentials
-MERAKI_API_KEY=your-meraki-api-key
-MERAKI_ORG_ID=your-org-id
-
-# ThousandEyes MCP
-TE_MCP_URL=https://api.thousandeyes.com/mcp
-TE_TOKEN=your-thousandeyes-bearer-token
-```
-
-See the `.env sample` file for the full list of optional settings (caching, read-only mode, multi-org profiles, etc.).
-
-### 3. Backend setup
+### 3. Backend
 
 ```bash
 cd backend
@@ -86,7 +74,7 @@ The `requirements.txt` includes:
 - `python-dotenv` / `pydantic-settings` -- configuration management
 - `websockets` -- WebSocket transport
 
-### 4. Frontend setup
+### 4. Frontend
 
 ```bash
 cd frontend

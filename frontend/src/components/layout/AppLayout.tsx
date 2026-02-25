@@ -2,7 +2,9 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { TopBar } from './TopBar'
 import { ChatPanel } from '../chat/ChatPanel'
 import { CanvasPanel } from '../canvas/CanvasPanel'
+import { SetupModal } from './SetupModal'
 import { useChatStore } from '../../store/chatSlice'
+import { useSettingsStore } from '../../store/settingsSlice'
 
 const DEFAULT_WIDTH = 600
 const EXPANDED_RATIO = 0.5
@@ -38,6 +40,10 @@ export function AppLayout() {
       })
     }
   }, [floatingPos.x])
+
+  // Check if first-run setup is needed
+  const checkSetup = useSettingsStore((s) => s.checkSetup)
+  useEffect(() => { checkSetup() }, [checkSetup])
 
   // --- Docked drag handlers ---
   const handleMouseDown = useCallback(() => {
@@ -212,6 +218,8 @@ export function AppLayout() {
           </div>
         </div>
       )}
+
+      <SetupModal />
     </div>
   )
 }
